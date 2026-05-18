@@ -496,6 +496,17 @@ Done criteria:
 
 ### Post-P8 Strengthening Backlog
 
-- Add a fixture-level regression test for protecting broad baseline tags from automatic negative scoring.
+- Done 2026-05-18: protect broad baseline tags from automatic negative scoring and add a fixture-level regression test.
 - Add a public example showing how to keep one private profile per user.
 - Add a cron smoke-test checklist that validates the exact production command after each migration.
+
+## 2026-05-18 Scoring Strengthening Notes
+
+- Added protected downrank tags for baseline search dimensions:
+  - `backend`
+  - `taichung`
+  - `remote`
+  - `php`
+- Weekly search hints and the markdown report now exclude those baseline tags from negative recommendations.
+- Specific negative traits still downrank normally, including `go_heavy`, `game`, `testing`, `legacy`, `mysql`, `redis`, and `payment`.
+- Added regression coverage to ensure rejected jobs do not teach the system to avoid the baseline job pool.

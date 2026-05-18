@@ -29,6 +29,11 @@ STATUS_LABELS = {
 POSITIVE_STATUSES = {"interested", "later", "want_to_apply", "applied"}
 NEGATIVE_STATUSES = {"not_fit", "archived"}
 
+# These tags define the baseline search space. A job can be rejected while still
+# being backend, Taichung, or remote; automatically downranking these dimensions
+# would teach the search to avoid the very pool it is meant to inspect.
+PROTECTED_DOWNRANK_TAGS = {"backend", "taichung", "remote", "php"}
+
 
 @dataclass(frozen=True)
 class FeedbackRecord:
@@ -159,9 +164,19 @@ def recent_records(records: list[FeedbackRecord], *, now: datetime, days: int = 
     return result
 
 
-def top_scores(profile: dict[str, Any], section: str, *, positive: bool = True, limit: int = 8) -> list[tuple[str, float, int]]:
+def top_scores(
+    profile: dict[str, Any],
+    section: str,
+    *,
+    positive: bool = True,
+    limit: int = 8,
+    exclude: set[str] | None = None,
+) -> list[tuple[str, float, int]]:
     items = []
+    excluded = exclude or set()
     for key, value in (profile.get("scores", {}).get(section, {}) or {}).items():
+        if key in excluded:
+            continue
         score = float(value.get("score") or 0)
         count = int(value.get("count") or 0)
         if positive and score <= 0:
@@ -175,7 +190,16 @@ def top_scores(profile: dict[str, Any], section: str, *, positive: bool = True, 
 
 def build_search_hints(profile: dict[str, Any]) -> dict[str, Any]:
     positive_tags = [key for key, _score, _count in top_scores(profile, "tags", positive=True, limit=12)]
-    negative_tags = [key for key, _score, _count in top_scores(profile, "tags", positive=False, limit=12)]
+    negative_tags = [
+        key
+        for key, _score, _count in top_scores(
+            profile,
+            "tags",
+            positive=False,
+            limit=12,
+            exclude=PROTECTED_DOWNRANK_TAGS,
+        )
+    ]
     positive_skills = [key for key, _score, _count in top_scores(profile, "skills", positive=True, limit=10)]
     return {
         "uid": profile.get("uid", ""),
@@ -191,7 +215,7 @@ def markdown_report(uid: str, records: list[FeedbackRecord], profile: dict[str, 
     recent = recent_records([record for record in records if record.uid == uid], now=now, days=days)
     status_counts = Counter(record.status for record in recent)
     positive_tags = top_scores(profile, "tags", positive=True, limit=8)
-    negative_tags = top_scores(profile, "tags", positive=False, limit=8)
+    negative_tags = top_scores(profile, "tags", positive=False, limit=8, exclude=PROTECTED_DOWNRANK_TAGS)
     skills = top_scores(profile, "skills", positive=True, limit=8)
     lines = [
         "# 104 職缺偏好週報",

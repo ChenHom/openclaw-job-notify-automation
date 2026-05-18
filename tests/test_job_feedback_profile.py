@@ -52,6 +52,24 @@ def test_search_hints_and_markdown_report():
     assert "下週搜尋條件建議" in report
 
 
+def test_search_hints_do_not_downrank_baseline_search_dimensions():
+    records = [
+        record("not_fit", ["backend", "taichung", "remote"]),
+        record("not_fit", ["backend", "taichung", "go_heavy"]),
+    ]
+    profile = profile_from_feedback(records, uid="u1", now=datetime(2026, 5, 18, tzinfo=timezone.utc))
+    hints = build_search_hints(profile)
+
+    assert "go_heavy" in hints["downrankTags"]
+    assert "backend" not in hints["downrankTags"]
+    assert "taichung" not in hints["downrankTags"]
+    assert "remote" not in hints["downrankTags"]
+    report = markdown_report("u1", records, profile, now=datetime(2026, 5, 18, tzinfo=timezone.utc))
+    assert "backend: score" not in report
+    assert "taichung: score" not in report
+    assert "remote: score" not in report
+
+
 def test_adjusted_relevance_applies_boost_and_downrank_tags():
     hints = {"boostTags": ["backend", "high_salary"], "downrankTags": ["go_heavy"]}
 
