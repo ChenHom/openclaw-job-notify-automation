@@ -1,0 +1,10 @@
+{
+  "firestoreProjectId": "your-firebase-project-id",
+  "firestoreDatabase": "(default)",
+  "nodeBinary": "node",
+  "firebaseToolsAuthModule": "firebase-tools/lib/auth.js",
+  "senderCommand": ["node", "/path/to/firebase_sender.js"],
+  "searchHintsPath": "search_hints.json",
+  "dailyReportDir": "reports/daily",
+  "weeklyReportDir": "reports/weekly"
+}

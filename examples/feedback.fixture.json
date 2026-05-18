@@ -1,0 +1,38 @@
+[
+  {
+    "id": "fixture-1",
+    "uid": "demo-user",
+    "jobKey": "104:demo1",
+    "status": "applied",
+    "reasonTags": ["backend", "api", "high_salary"],
+    "negativeTags": [],
+    "sourceContexts": ["daily"],
+    "snapshot": {
+      "company": "Demo Co",
+      "title": "PHP Backend Engineer",
+      "salary": "月薪 80,000 元以上",
+      "location": "台中市西屯區",
+      "skills": ["PHP", "Redis", "API"],
+      "tags": ["backend", "api", "high_salary", "taichung"]
+    },
+    "updatedAt": "2026-05-18T00:00:00+00:00"
+  },
+  {
+    "id": "fixture-2",
+    "uid": "demo-user",
+    "jobKey": "104:demo2",
+    "status": "not_fit",
+    "reasonTags": ["game"],
+    "negativeTags": ["go_heavy"],
+    "sourceContexts": ["weekly"],
+    "snapshot": {
+      "company": "Demo Game",
+      "title": "Go Game Backend Engineer",
+      "salary": "月薪 60,000 元以上",
+      "location": "台北市",
+      "skills": ["Go"],
+      "tags": ["game", "go_heavy"]
+    },
+    "updatedAt": "2026-05-18T00:00:00+00:00"
+  }
+]
