@@ -1,6 +1,8 @@
 # OpenClaw Job Notify Automation
 
-104 job search and feedback automation used by OpenClaw Notify.
+### 職責說明
+本專案為通知自動化引擎，負責執行職務探索、過濾、排序、基於反饋調整個人偏好設定、產生報告以及建立通知內容。
+它不負責 Firebase/PWA 收件匣 UI 或生產環境的推送服務，該部分由 `openclaw-notify-inbox` 負責。本引擎僅需透過設定好的發送指令傳遞訊息，允許使用者在不更動領域邏輯的情況下切換其他的收件匣或傳遞系統。運行期間的私密狀態與配置則存放於如 `openclaw-job-notify-profile` 的檔案位置。
 
 ## Contents
 
