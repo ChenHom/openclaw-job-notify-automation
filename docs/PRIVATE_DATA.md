@@ -30,3 +30,10 @@ openclaw-job-notify-profile/
 
 Runtime secrets and credentials should not be stored in RAG or memory. RAG is suitable for design decisions, SOPs, and project history, not for values used to authenticate or write production systems.
 
+## Related Projects
+
+- Public automation engine: `openclaw-job-notify-automation`.
+- Production inbox / delivery surface: `openclaw-notify-inbox`.
+- Private profile boundary for the automation engine: `openclaw-job-notify-profile`.
+
+Do not move inbox UI code, Firebase deployment files, or production push sender implementation into the public engine. Do not move personal profile data into the inbox repo.
