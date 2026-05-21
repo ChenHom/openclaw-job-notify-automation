@@ -18,6 +18,9 @@ The original MVP scope was directionally right, but several claims were too vagu
 - "Risk review" must have automatic gates, not just a warning document.
 - "Package ready" needs a user-visible status page and expiry policy.
 - "Five submitted records" must be computed from stable submitted records, not from clicks or counters.
+- A hosted inbox cannot show local private artifacts without an authenticated local bridge; the bridge is MVP scope, not future work.
+- AI self-review is not enough; generation and verification must be separate steps.
+- Job URL identity alone is too coarse for reopened evergreen jobs; application attempts need their own lifecycle.
 
 ## Confirmed Product Decisions
 
@@ -86,6 +89,13 @@ Failure or blocked states:
 - `failed`
 - `cancelled`
 
+Bridge states:
+
+- `package_ready_bridge_unavailable`
+- `package_ready`
+
+`package_ready` means the user can see and copy the tailored fields in UI. If the local bridge is unavailable, the workflow must not call the package fully ready.
+
 Timeouts:
 
 - `requested`, `fetching_job`, `fetching_resume`, and `generating_package` should be treated as stale after 30 minutes without progress.
@@ -141,14 +151,28 @@ After the request is created, the user should open a private application status 
 - Diff and risk review collapsed below the copy-ready fields.
 - Actions: open 104 manually, mark submitted, cancel.
 
-The status page reads only non-sensitive Firestore fields by default.
+The status page reads non-sensitive Firestore fields first, then requests private package content from a local bridge.
 
-Important implementation constraint:
+## Local Private Bridge
 
 - Firebase Hosting / Firestore cannot read `/home/hom/services/openclaw-job-notify-profile`.
-- Therefore, the first implementation may mark `package_ready` and show metadata in Notify, but it must not promise copy-ready full text inside the hosted inbox until an authenticated local/private bridge exists.
-- The bridge must authenticate the user, accept `applicationId`, resolve it to the local artifact directory, and return only the two allowed paste-ready fields plus risk status.
-- If the bridge is unavailable, the user-visible state should be `package_ready_local_only`, with a local artifact path shown only in terminal/admin logs, not public Firestore.
+- Therefore, the MVP must include a local private bridge. Without it, the workflow is not usable enough to call "package ready".
+- The bridge is a localhost-only HTTP service on the user's machine, for example `127.0.0.1:<port>`.
+- It accepts a short-lived signed read token and an `applicationId`.
+- It resolves `applicationId` through a local manifest under `/home/hom/services/openclaw-job-notify-profile/applications/...`.
+- It returns only:
+  - `applicationId`
+  - `status`
+  - `jobTitle`
+  - `company`
+  - `skillsSummaryFull`
+  - `autobiographyFull`
+  - `riskStatus`
+  - `riskFlags`
+- It must not return source resume JSON, raw page text, cookies, tokens, phone, email, or arbitrary local file paths.
+- It should be read-only for MVP.
+- If the bridge is unavailable, the status is `package_ready_bridge_unavailable`, and the UI should say the package exists but cannot be opened on this device/session yet.
+- `package_ready` is reserved for packages that are visible in the UI with copy buttons.
 
 Do not put full resume text into public Firestore notification documents.
 
@@ -163,14 +187,25 @@ Do not put full resume text into public Firestore notification documents.
 
 AI risk gates:
 
-- The generator must output structured JSON with only `skillsSummaryFull`, `autobiographyFull`, `evidenceMap`, and `riskFlags`.
+- The generator must output structured JSON with only `skillsSummaryFull`, `autobiographyFull`, and a concise rationale.
+- A separate reviewer step must independently receive the source resume snapshot, JD snapshot, and generated fields.
+- The reviewer outputs `evidenceMap` and `riskFlags`.
+- The reviewer should use a separate prompt and may use a separate model/agent. It must not reuse the generator's self-reported evidence as truth.
+- The deterministic validator then checks reviewer output against the original source data.
 - Any output that mentions a company, title, technology, metric, tenure, education, certificate, or contact field not present in the source resume or JD evidence map is rejected.
-- If `riskFlags` contains `unsupported_claim`, `contact_info_changed`, `employment_history_changed`, `education_changed`, or `salary_changed`, the package cannot move to `package_ready`; it moves to `needs_manual_review`.
+- If reviewer or deterministic validation emits `unsupported_claim`, `contact_info_changed`, `employment_history_changed`, `education_changed`, or `salary_changed`, the package cannot move to `package_ready`; it moves to `needs_manual_review`.
 - `risk-review.md` is an audit artifact. The blocking decision must be represented in machine-readable manifest fields, not only prose.
 
 Submitted-record identity:
 
-- The stable key is `104:{canonicalJobUrlHash}:程式`.
+- The job identity key is `104:{canonicalJobUrlHash}:程式`.
+- The application attempt key is `104:{canonicalJobUrlHash}:程式:{attemptStartedAt}`.
+- A new `應徵` click should reuse an active attempt only if it is not terminal and is inside the active reuse window.
+- Terminal states are `submitted_by_user`, `cancelled`, and `expired`.
+- After a terminal state, the user may create a new attempt for the same URL.
+- The default reuse window for non-terminal attempts is 14 days.
+- For evergreen/reopened jobs, a new attempt after 60 days should be allowed even if the URL is identical.
+- The worker should snapshot the JD on every attempt. If the same URL has changed title/company/JD hash, it must create a new attempt even inside the reuse window.
 - `submitted_by_user` stores `submittedAt` once. Repeated clicks update `lastSubmittedClickAt` but do not create a new submitted record.
 - Batch selection queries submitted records where `batchNotifyId is null`, ordered by `submittedAt`, limited to 5.
 - A batch is created only from exactly 5 record IDs and stores those IDs before sending.
@@ -185,10 +220,18 @@ Submitted-record identity:
 - Expired or OTP/captcha-blocked 104 session moves to `blocked_resume_fetch_auth_required` and does not loop forever.
 - Application package includes complete paste-ready autobiography plus diff.
 - Application package UI prioritizes copy-ready full fields; diff is secondary.
+- Local private bridge returns copy-ready `skillsSummaryFull` and `autobiographyFull` for a valid `applicationId`.
+- Hosted inbox does not mark an application `package_ready` unless copy-ready fields are visible through the bridge.
+- Bridge responses do not include raw source resume, raw page text, local private paths, phone, email, cookies, or tokens.
 - AI output containing fields outside `skillsSummary` / `autobiography` is rejected.
+- Generator and reviewer are separate steps; reviewer does not trust generator-provided evidence.
 - AI output with unsupported claims moves to `needs_manual_review`, not `package_ready`.
 - Firestore notification/request documents do not include full resume text, phone, email, cookies, tokens, or local private paths with sensitive contents.
 - `package_ready` expires after the configured TTL when the user takes no action.
+- Same URL within an active 14-day non-terminal attempt reuses the attempt.
+- Same URL after submitted/cancelled/expired can create a new attempt.
+- Same URL after 60 days can create a new attempt for evergreen/reopened jobs.
+- Same URL with changed JD hash creates a new attempt.
 - Four submitted records do not send a batch notification.
 - Five submitted records send exactly one batch notification.
 - Retrying the batch notifier does not resend the same batch.
