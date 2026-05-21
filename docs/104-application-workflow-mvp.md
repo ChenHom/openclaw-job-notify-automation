@@ -69,6 +69,14 @@ Session handling:
 - If 104 redirects to login, asks for OTP, captcha, or blocks the session, the workflow must move to `blocked_resume_fetch_auth_required`.
 - The MVP does not auto-refresh 104 login state. Manual re-authentication is required through `npm run auth:login-env`.
 - A worker must not retry forever when blocked by authentication. It should write a blocked status and surface a clear repair action.
+- Auth blocks must create a public-safe Claw Notify alert so the user knows the application workflow is paused.
+- The alert may include job title/company and the repair command `npm run auth:login-env`, but must not include account, password, OTP, cookies, tokens, or storage-state contents.
+
+Subprocess contract:
+
+- Automation callers must not parse `npm run` stdout as structured data.
+- `104-resume-automation` should write explicit result JSON and snapshot files via CLI flags such as `--result` and `--output`.
+- stdout/stderr are logs only; noisy npm output must not break the worker.
 
 ## MVP State Flow
 
@@ -191,6 +199,8 @@ Access model:
 - Firebase / Notify may store a non-secret private-view URL or `applicationId` entry point, but it must not store package contents or bearer secrets.
 - Opening the package is top-level navigation to the private endpoint, not cross-origin browser `fetch` from Firebase. This avoids CORS / mixed-content / Private Network Access failures.
 - The device must be inside the approved private network, such as the user's Tailscale tailnet. If not, the UI shows `package_ready_bridge_unavailable`.
+- Firebase cannot reliably know whether the current browser/device is on the tailnet without attempting the private-network request. The hosted UI should not auto-redirect; it should show a clear "requires Tailscale/private network" action panel and let the user explicitly open the private view.
+- The local bridge may publish a public-safe heartbeat timestamp so the hosted UI can distinguish bridge service down from likely device-network issues.
 - For MVP single-user operation, tailnet access plus an unguessable `applicationId` is the access boundary. If multi-user support is added, implement real identity checks at the private endpoint before serving content.
 - Do not invent a shared JWT secret in repo code. Do not pass a local capability token through Firestore.
 
@@ -213,6 +223,7 @@ AI risk gates:
 - The reviewer should use a separate prompt and may use a separate model/agent. It must not reuse the generator's self-reported evidence as truth.
 - The deterministic validator then performs high-precision checks against structured source data and protected-claim rules.
 - The deterministic validator is not a full semantic truth engine. It should only hard-block facts that are clearly unsafe, not every unseen synonym.
+- Deterministic code must not pretend it can classify arbitrary unknown technology synonyms. Semantic equivalence is a reviewer judgment with confidence; deterministic code only hard-blocks protected fields and protected hard claims.
 - It must check:
   - Field allowlist: only `skillsSummaryFull` and `autobiographyFull` may change.
   - Protected fields: phone, email, name, education, employment history, dates, salary, title history, and company history.
@@ -222,6 +233,13 @@ AI risk gates:
 - Ambiguous cases become reviewer warnings or `needs_manual_review`, not hard failure, unless they touch protected fields or protected hard claims.
 - If reviewer or deterministic validation emits `unsupported_claim`, `contact_info_changed`, `employment_history_changed`, `education_changed`, or `salary_changed`, the package cannot move to `package_ready`; it moves to `needs_manual_review`.
 - `risk-review.md` is an audit artifact. The blocking decision must be represented in machine-readable manifest fields, not only prose.
+- `needs_manual_review` must be recoverable in the private UI: show risk notes, editable `技能摘要` / `自傳`, save manual revision artifacts, and re-run review. Do not require terminal editing of Markdown or manifest files.
+
+Private view daemon:
+
+- The tailnet private package view must be an explicit daemon with documented start command and health endpoint, not a hidden side effect of the worker.
+- Worker and daemon must use repository helpers with atomic writes and per-application locks for artifact updates.
+- The daemon resolves `applicationId` through the repository layer and must never serve arbitrary local file paths.
 
 Submitted-record identity:
 

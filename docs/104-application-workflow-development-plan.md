@@ -161,20 +161,73 @@ source-resume.json
 TDD first:
 
 - Successful export stores private snapshot and moves to `generating_package`.
+- Adapter ignores noisy `npm run` stdout and reads only explicit result files.
+- Missing result file is a structured subprocess failure.
+- Invalid result JSON is a structured subprocess failure.
+- Non-zero exit with a valid blocked-auth result maps to `blocked_resume_fetch_auth_required`.
 - Missing resume moves to `blocked_resume_not_found`.
 - Login/OTP/captcha block moves to `blocked_resume_fetch_auth_required`.
 - Worker does not retry auth-blocked requests forever.
+- Auth-block writes a public-safe remediation event that can be sent through Claw Notify.
+- Auth-block notification is rate-limited so a broken session does not spam.
 
 Implementation:
 
 - Add a stable CLI output contract to `104-resume-automation`.
-- Add automation adapter that invokes `npm run resume:export -- --name 程式 --no-raw-text`.
-- Parse stdout/result JSON or error code.
+- Add automation adapter that invokes the CLI with explicit file outputs, not stdout parsing:
+  - `npm run resume:export -- --name 程式 --no-raw-text --output <tmp>/source-resume.json --result <tmp>/resume-export-result.json`
+  - stdout/stderr are logs only and must never be parsed as the source of truth.
+  - Python reads the result file and snapshot file after the subprocess exits.
+  - The adapter treats missing result file, invalid result JSON, non-zero exit, timeout, and auth-block code as distinct failure classes.
+- Add a stable result-file contract to `104-resume-automation`:
+
+```json
+{
+  "ok": true,
+  "status": "exported",
+  "resumeName": "程式",
+  "snapshotPath": "/tmp/source-resume.json",
+  "screenshotPath": "screenshots/resume-export-程式.png",
+  "sections": {
+    "skillsSummaryChars": 188,
+    "workSkillsChars": 60,
+    "autobiographyChars": 1029
+  }
+}
+```
+
+Blocked auth result:
+
+```json
+{
+  "ok": false,
+  "status": "blocked_resume_fetch_auth_required",
+  "reason": "login_or_otp_required"
+}
+```
+
+- Never parse `npm run` stdout as JSON. `npm` output is allowed to be noisy.
+- On `blocked_resume_fetch_auth_required`:
+  - Update Firestore request status with `blockedReason: "104_auth_required"`.
+  - Send one Claw Notify alert: `104 登入已過期，應徵包暫停產生`.
+  - Include the safe repair action text: `在 /home/hom/services/104-resume-automation 執行 npm run auth:login-env`.
+  - Do not include account, password, OTP, cookies, storage state, or local auth file contents.
+  - Stop worker retries until a future run observes renewed auth or the user manually retries.
+- Store a private audit entry in the application manifest with the raw internal error class, but keep public notification text generic.
+
+Operational UX:
+
+- The user's `應徵` click must not become a black hole.
+- If auth is blocked, the request appears as blocked in the hosted inbox and sends a visible Claw Notify alert.
+- The alert should point to the affected job title/company and say package generation will resume after re-auth.
+- A later successful auth check can move the attempt back to `fetching_resume` or allow a manual retry action.
 
 Done criteria:
 
 - Fixture tests cover success and blocked auth.
+- Tests cover noisy stdout, invalid result JSON file, missing result file, subprocess timeout, and non-zero exit.
 - Real command still passes `npm run test` and `npx tsc --noEmit`.
+- Auth-block path produces exactly one alert per request per cooldown window.
 
 ## Phase 4 - Package Generator, Reviewer, Validator
 
@@ -205,12 +258,47 @@ Pipeline:
 5. If clean, status moves toward private view generation.
 6. If unsafe or ambiguous, status moves to `needs_manual_review`.
 
+Manual review escape route:
+
+- `needs_manual_review` must not be a dead end.
+- The private package view must show:
+  - risk flags and reviewer notes
+  - copy-ready generated text as a draft
+  - editable textareas for `技能摘要` and `自傳`
+  - `儲存修正版`
+  - `重新審查`
+  - `取消此應徵包`
+- Manual edits are saved as new artifact versions:
+
+```text
+skill-summary.manual-v<N>.md
+autobiography.manual-v<N>.md
+manual-review-note-v<N>.md
+```
+
+- Never require the user to edit Markdown files or manifest JSON directly.
+- After `重新審查`, run reviewer + deterministic validator again.
+- If clean, move to `package_ready`.
+- If still blocked, remain `needs_manual_review` with updated risk notes.
+
 Validator scope:
 
 - Hard-block protected field changes.
 - Hard-block new protected hard claims.
-- Do not hard-block ordinary unseen technology synonyms.
+- Do not ask deterministic code to decide whether an unknown technology phrase is a synonym.
+- Deterministic code handles protected fields/claims; Reviewer handles semantic equivalence with explicit confidence.
 - Route ambiguity to warning or `needs_manual_review`.
+
+Practical validator split:
+
+- Reviewer extracts structured claims from generated text:
+  - `protectedClaims`: company, school, certification, employment date, years, numeric result, award, management headcount, contact info.
+  - `technologyClaims`: technology/tool/framework/platform terms.
+  - `semanticEquivalence`: reviewer judgment for rewritten terms, with confidence and evidence.
+- Deterministic validator hard-blocks only protected-claim violations it can match against source/JD evidence.
+- Deterministic validator does not hard-block `technologyClaims` just because they are unseen.
+- Unknown technology terms become warnings unless paired with protected assertions like years, certification, quantified achievement, or a claim of direct production use not present in evidence.
+- Optional alias map is only a noise reducer for common terms. The system must still be acceptable if the alias map is tiny.
 
 TDD first:
 
@@ -220,11 +308,17 @@ TDD first:
 - New numeric claim not in source/JD is rejected.
 - `AWS` / `Amazon Web Services` style wording is not a hard failure.
 - Unknown technology wording becomes warning unless it claims years/certification/metric.
+- Unknown technology with protected quantity, such as `5 years of Kubernetes`, moves to `needs_manual_review` when unsupported.
+- Reviewer low-confidence semantic equivalence moves to warning or `needs_manual_review`, not automatic `package_ready`.
 - Unsupported claim moves to `needs_manual_review`, not `package_ready`.
+- `needs_manual_review` package can be opened in the private view.
+- Saving manual edits creates versioned manual artifacts and never overwrites the original generated artifacts.
+- Re-review after manual edits can move the package to `package_ready`.
 
 Done criteria:
 
 - Tests cover generator schema, reviewer schema, validator gates, and artifact output.
+- Tests cover manual-review edit, versioning, and re-review.
 - No generated full text is written to Firestore.
 
 ## Phase 5 - Tailnet Private Package View
@@ -255,7 +349,33 @@ Private endpoint behavior:
   - `自傳`
 - Include collapsed diff/risk review.
 - Include actions or instructions for manual 104 submission.
+- Include manual-review edit controls when status is `needs_manual_review`.
 - Never expose source resume JSON, raw page text, cookies, tokens, phone, email, or arbitrary local paths.
+
+Daemon:
+
+- Implement the private view as an explicit daemon, not an unnamed side effect of the worker.
+- Recommended first implementation: a small Python HTTP server in `openclaw-job-notify-automation`, for example `bin/application_private_view_server.py`.
+- Use the standard library or the smallest existing dependency footprint first; avoid adding a full framework unless routing/forms become painful.
+- The worker writes artifacts; the daemon reads artifacts and writes only manual-review revisions / submitted markers through a small repository API.
+- Use atomic file writes for artifacts: write to `*.tmp`, flush/fsync when practical, then atomic rename to final path.
+- Use per-application lock files for write operations: worker generation, manual review save, and submitted marker update.
+- The daemon must never serve arbitrary files by path. It resolves `applicationId` to a manifest through the repository layer.
+- Daemon management should be explicit: documented start command, optional systemd user service later, health endpoint returning public-safe status only, and heartbeat writer for `privateViewServiceLastSeenAt`.
+
+Hosted UX:
+
+- The hosted Firebase page cannot reliably preflight a user's current device reachability to the tailnet endpoint.
+- Do not auto-redirect to the private endpoint.
+- Show an explicit action panel:
+  - `私密應徵包已產生`
+  - `需要連上 Tailscale / 私有網路才能開啟`
+  - `開啟私密應徵包`
+  - `如果打不開，先開啟 Tailscale 後再回來點`
+- The local bridge may publish a public-safe heartbeat, such as `privateViewServiceLastSeenAt`, so the hosted UI can distinguish service-down from device-not-connected.
+- Device reachability remains unknowable from Firebase without making a cross-origin private-network request; do not claim otherwise.
+- If service heartbeat is stale, show `package_ready_bridge_unavailable` before the user clicks.
+- If heartbeat is healthy but the user's device is not on tailnet, the click may still fail at browser/network level; the UI must warn before navigation and keep the public status page usable after back navigation.
 
 TDD first:
 
@@ -263,14 +383,23 @@ TDD first:
 - Unknown `applicationId` returns 404.
 - Path traversal attempts fail.
 - Response does not include forbidden private fields.
+- Daemon health endpoint returns public-safe heartbeat data only.
+- Concurrent worker/manual-review writes use lock/atomic write helpers.
+- `needs_manual_review` renders editable fields and re-review actions.
 - Hosted inbox status link opens private endpoint as top-level navigation.
-- If endpoint is unreachable, status is `package_ready_bridge_unavailable`.
+- Hosted inbox does not auto-navigate to private endpoint.
+- Hosted inbox shows Tailscale/private-network precondition text.
+- Stale bridge heartbeat shows `package_ready_bridge_unavailable`.
+- Healthy bridge heartbeat shows an explicit open button, not an automatic redirect.
 
 Done criteria:
 
 - Private endpoint works from an approved tailnet device.
+- Daemon start command is documented.
+- Daemon health/heartbeat is visible to the hosted shell without leaking private content.
 - Firebase UI does not attempt localhost fetch.
 - Package is usable without SSH or terminal file digging.
+- Firebase UI degrades gracefully when the private endpoint is not reachable.
 
 ## Phase 6 - Manual Submission Tracking
 
