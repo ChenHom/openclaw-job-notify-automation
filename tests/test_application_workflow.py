@@ -12,9 +12,12 @@ from job_notify.application_workflow import (
     ConservativePackageGenerator,
     FETCHING_RESUME,
     GENERATING_PACKAGE,
+    JdAwarePackageGenerator,
     PACKAGE_READY_BRIDGE_UNAVAILABLE,
     ResumeExportOutcome,
+    build_generated_resume_name,
 )
+from job_notify.application_private_view import render_package_view
 from job_notify.firestore_admin import FixtureApplicationStore
 
 
@@ -229,3 +232,76 @@ def test_package_worker_moves_generating_package_to_bridge_unavailable(tmp_path)
     manifest = json.loads(repo.manifest_path(req["applicationId"]).read_text(encoding="utf-8"))
     assert manifest["status"] == PACKAGE_READY_BRIDGE_UNAVAILABLE
     assert manifest["package"]["files"]["applicationPackage"] == "application-package.md"
+
+
+def test_jd_aware_package_generator_writes_resume_profile_and_allowed_fields(tmp_path):
+    req = request(jobId="8rgy1", company="艾栩策略管理顧問", status=GENERATING_PACKAGE)
+    repo = ApplicationArtifactRepository(tmp_path)
+    repo.update_manifest(req["applicationId"], {
+        "applicationId": req["applicationId"],
+        "status": GENERATING_PACKAGE,
+        "resumeName": "程式",
+        "job": {"jobId": req["jobId"], "title": req["title"], "company": req["company"], "jobUrl": req["jobUrl"]},
+    })
+    repo.write_jd_snapshot(req, {
+        "jobId": req["jobId"],
+        "title": "Backend Engineer",
+        "company": req["company"],
+        "bodyText": "Laravel RESTful API MySQL Redis Queue Git Docker",
+        "fetchStatus": "fetched",
+    })
+    repo.write_json(repo.source_resume_path(req["applicationId"]), {
+        "sections": {
+            "skillsSummary": "Vue\nPHP\nLaravel\nMySQL\nRedis\nGit",
+            "workSkills": "軟體程式設計\n系統架構規劃",
+            "autobiography": "我有金流平台開發維運、Laravel API、MySQL 效能改善、系統監控與既有系統重構經驗。",
+        },
+        "experiences": [
+            {"company": "究境", "description": "導入 Laravel 框架\n重新規劃訂單及帳務流程\n搭配 Telegram 建立系統監控"},
+            {"company": "揚鼎", "description": "導入 CodeIgniter\n透過 MySQL Explain 修正慢查詢"},
+        ],
+    })
+
+    result = JdAwarePackageGenerator().generate(application_id=req["applicationId"], artifacts=repo)
+
+    assert result.status == PACKAGE_READY_BRIDGE_UNAVAILABLE
+    profile = json.loads(repo.resume_profile_path(req["applicationId"]).read_text(encoding="utf-8"))
+    assert profile["generatedResumeName"] == "8rgy1_艾栩策略管理顧問"
+    assert set(profile["allowlistedFields"]) == {"skillsSummary", "workSkills", "autobiography", "experiences"}
+    assert "Laravel" in repo.skill_summary_full_path(req["applicationId"]).read_text(encoding="utf-8").splitlines()[0:3]
+    assert "職能定位" in repo.autobiography_full_path(req["applicationId"]).read_text(encoding="utf-8")
+    assert (repo.application_dir(req["applicationId"]) / "experiences" / "究境.full.md").exists()
+
+
+def test_generated_resume_name_truncates_company_suffix_only():
+    name = build_generated_resume_name("8rgy1", "非常非常非常非常非常長的公司名稱", max_length=12)
+
+    assert name.startswith("8rgy1_")
+    assert len(name) == 12
+
+
+def test_private_package_view_renders_copy_ready_fields_without_source_snapshot(tmp_path):
+    req = request(status=GENERATING_PACKAGE)
+    repo = ApplicationArtifactRepository(tmp_path)
+    repo.update_manifest(req["applicationId"], {
+        "applicationId": req["applicationId"],
+        "status": PACKAGE_READY_BRIDGE_UNAVAILABLE,
+        "resumeName": "程式",
+        "job": {"title": req["title"], "company": req["company"]},
+        "package": {"status": PACKAGE_READY_BRIDGE_UNAVAILABLE},
+    })
+    repo.write_json(repo.resume_profile_path(req["applicationId"]), {
+        "generatedResumeName": "8abcd_好公司",
+        "job": {"title": req["title"], "company": req["company"]},
+    })
+    repo.write_text(repo.skill_summary_full_path(req["applicationId"]), "PHP\nLaravel")
+    repo.write_text(repo.work_skills_full_path(req["applicationId"]), "後端 API 開發")
+    repo.write_text(repo.autobiography_full_path(req["applicationId"]), "- 職能定位：PHP 後端")
+    repo.write_text(repo.risk_review_path(req["applicationId"]), "Status: review required")
+
+    view = render_package_view(application_id=req["applicationId"], artifacts=repo)
+
+    assert view.status_code == 200
+    assert "104 私密應徵包" in view.body
+    assert "PHP\nLaravel" in view.body
+    assert "source-resume.json" not in view.body

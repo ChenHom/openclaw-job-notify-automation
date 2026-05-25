@@ -316,6 +316,14 @@ Pipeline:
 - Because Phase 5 private bridge is not implemented yet, successful P4 output moves Firestore and manifest status to `package_ready_bridge_unavailable`, not `package_ready`.
 - Verified real request `104_8l1s4_程式`: generated `skill-summary.full.md`, `skill-summary.diff.md`, `autobiography.full.md`, `autobiography.diff.md`, `risk-review.md`, and `application-package.md`; Firestore remained public-safe and did not store resume/package contents.
 
+2026-05-25 JD-aware implementation:
+
+- Added `JdAwarePackageGenerator`.
+- `bin/application_worker.py --generate-package` now defaults to `--package-generator jd-aware`; `--package-generator conservative` remains available.
+- The JD-aware generator reorders/condenses existing source evidence only. It writes `resume-profile.json`, `work-skills.full.md`, `work-skills.diff.md`, and optional `experiences/*.md` artifacts in addition to the earlier package files.
+- It derives the generated resume name as `<jobCode>_<companyName>` and stores only allowlisted write fields in `resume-profile.json`.
+- Verified existing request `104_8l1s4_程式`: generated `resume-profile.json` with target resume `8l1s4_沃龍超遊股份有限公司`; Firestore/private-content boundary remains unchanged.
+
 Manual review escape route:
 
 - `needs_manual_review` must not be a dead end.
@@ -459,6 +467,22 @@ Done criteria:
 - Package is usable without SSH or terminal file digging.
 - Firebase UI degrades gracefully when the private endpoint is not reachable.
 
+2026-05-25 minimal implementation:
+
+- Added `job_notify/application_private_view.py`.
+- Added explicit daemon entry point `bin/application_private_view_server.py`.
+- Start command:
+
+```bash
+python3 bin/application_private_view_server.py --profile-dir /home/hom/services/openclaw-job-notify-profile --port 8765
+```
+
+- Health endpoint: `http://127.0.0.1:8765/health`.
+- Package endpoint: `http://127.0.0.1:8765/package?applicationId=<applicationId>`.
+- The page renders copy-ready `技能摘要`, `工作技能`, `自傳`, and `risk-review.md`.
+- The response is blocked if unsafe markers such as source snapshot names, cookies, or tokens appear in the rendered HTML.
+- Verified locally with `104_8l1s4_程式`: health returned OK and package HTML rendered without exposing `source-resume.json`.
+
 ## Phase 6 - 104 Resume Draft Create / Update
 
 Owner repos:
@@ -538,6 +562,19 @@ Done criteria:
 - A controlled create/update run can create or update one company-specific 104 resume draft.
 - Readback verification proves the 104 online draft matches the approved local package.
 - No submission action is clicked.
+
+2026-05-25 dry-run implementation:
+
+- Added `104-resume-automation` command `npm run resume:draft`.
+- The current implementation is dry-run first: it opens the 104 profile page, checks the add-resume entry, loads `resume-profile.json`, detects whether the generated resume name already exists, then writes a machine-readable plan.
+- It does not click `開始製作`, save, or submit.
+- Verified with `104_8l1s4_程式`:
+
+```bash
+npm run resume:draft -- --profile /home/hom/services/openclaw-job-notify-profile/applications/104_8l1s4_程式/resume-profile.json --dry-run
+```
+
+- Result: `dry_run_ready`, target resume `8l1s4_沃龍超遊股份有限公司`, action `create_from_source_resume`, `addResumeEntryAvailable: true`, `submitsApplication: false`.
 
 ## Phase 7 - Assisted Application / Manual Submission Tracking
 

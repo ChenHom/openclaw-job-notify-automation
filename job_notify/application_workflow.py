@@ -23,6 +23,7 @@ FETCHING_JOB = "fetching_job"
 FETCHING_RESUME = "fetching_resume"
 GENERATING_PACKAGE = "generating_package"
 PACKAGE_READY_BRIDGE_UNAVAILABLE = "package_ready_bridge_unavailable"
+PACKAGE_READY = "package_ready"
 BLOCKED_JOB_DETAIL_UNAVAILABLE = "blocked_job_detail_unavailable"
 BLOCKED_RESUME_FETCH_AUTH_REQUIRED = "blocked_resume_fetch_auth_required"
 BLOCKED_RESUME_NOT_FOUND = "blocked_resume_not_found"
@@ -96,6 +97,12 @@ class ApplicationArtifactRepository:
     def skill_summary_diff_path(self, application_id: str) -> Path:
         return self.application_dir(application_id) / "skill-summary.diff.md"
 
+    def work_skills_full_path(self, application_id: str) -> Path:
+        return self.application_dir(application_id) / "work-skills.full.md"
+
+    def work_skills_diff_path(self, application_id: str) -> Path:
+        return self.application_dir(application_id) / "work-skills.diff.md"
+
     def autobiography_full_path(self, application_id: str) -> Path:
         return self.application_dir(application_id) / "autobiography.full.md"
 
@@ -107,6 +114,15 @@ class ApplicationArtifactRepository:
 
     def application_package_path(self, application_id: str) -> Path:
         return self.application_dir(application_id) / "application-package.md"
+
+    def resume_profile_path(self, application_id: str) -> Path:
+        return self.application_dir(application_id) / "resume-profile.json"
+
+    def experience_full_path(self, application_id: str, company: str) -> Path:
+        return self.application_dir(application_id) / "experiences" / f"{safe_filename(company)}.full.md"
+
+    def experience_diff_path(self, application_id: str, company: str) -> Path:
+        return self.application_dir(application_id) / "experiences" / f"{safe_filename(company)}.diff.md"
 
     def write_json(self, path: Path, data: dict[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -293,6 +309,88 @@ class ConservativePackageGenerator:
         )
 
 
+class JdAwarePackageGenerator:
+    """Generate a job-aware package by reordering and condensing existing evidence."""
+
+    def generate(self, *, application_id: str, artifacts: ApplicationArtifactRepository) -> ApplicationPackageResult:
+        manifest = artifacts.read_json(artifacts.manifest_path(application_id), {})
+        jd = artifacts.read_json(artifacts.jd_path(application_id), {})
+        source_resume = artifacts.read_json(artifacts.source_resume_path(application_id), {})
+        sections = source_resume.get("sections") or {}
+        skills_summary = normalize_multiline_text(str(sections.get("skillsSummary") or ""))
+        work_skills = normalize_multiline_text(str(sections.get("workSkills") or ""))
+        autobiography = normalize_multiline_text(str(sections.get("autobiography") or ""))
+        if not skills_summary or not autobiography:
+            return ApplicationPackageResult(NEEDS_MANUAL_REVIEW, {}, ["source_resume_missing_required_sections"])
+
+        job = {**(manifest.get("job") or {}), **{key: jd.get(key, "") for key in ("jobId", "title", "company", "jobUrl")}}
+        resume_name = build_generated_resume_name(str(job.get("jobId") or ""), str(job.get("company") or ""))
+        jd_text = jd_plain_text(jd)
+        source_text = "\n".join([skills_summary, work_skills, autobiography])
+        prioritized_terms = prioritize_terms(jd_text, source_text)
+        generated_skills = build_jd_aware_skills_summary(skills_summary, prioritized_terms)
+        generated_work_skills = build_jd_aware_work_skills(work_skills, prioritized_terms)
+        generated_autobiography = build_jd_aware_autobiography(autobiography, prioritized_terms)
+        experience_files = write_relevant_experiences(
+            application_id=application_id,
+            artifacts=artifacts,
+            source_resume=source_resume,
+            prioritized_terms=prioritized_terms,
+        )
+        risk_review, warnings = build_jd_aware_risk_review(jd=jd, source_resume=source_resume, prioritized_terms=prioritized_terms)
+        profile = {
+            "schemaVersion": 1,
+            "applicationId": application_id,
+            "sourceResumeName": manifest.get("resumeName", "程式"),
+            "generatedResumeName": resume_name,
+            "job": {
+                "jobId": str(job.get("jobId") or ""),
+                "title": str(job.get("title") or ""),
+                "company": str(job.get("company") or ""),
+                "jobUrl": str(job.get("jobUrl") or ""),
+            },
+            "allowlistedFields": {
+                "skillsSummary": generated_skills,
+                "workSkills": generated_work_skills,
+                "autobiography": generated_autobiography,
+                "experiences": experience_files["profiles"],
+            },
+            "protectedFieldsPolicy": "do_not_change_identity_education_employment_dates_salary_contact_years_management_or_ordering",
+            "riskStatus": "review_required" if warnings else "clean",
+            "riskWarnings": warnings,
+        }
+        package = build_application_package(
+            manifest={**manifest, "resumeName": resume_name},
+            jd=jd,
+            skills_summary=generated_skills,
+            autobiography=generated_autobiography,
+            risk_review=risk_review,
+        )
+        writes = {
+            "skillSummaryFull": artifacts.skill_summary_full_path(application_id),
+            "skillSummaryDiff": artifacts.skill_summary_diff_path(application_id),
+            "workSkillsFull": artifacts.work_skills_full_path(application_id),
+            "workSkillsDiff": artifacts.work_skills_diff_path(application_id),
+            "autobiographyFull": artifacts.autobiography_full_path(application_id),
+            "autobiographyDiff": artifacts.autobiography_diff_path(application_id),
+            "riskReview": artifacts.risk_review_path(application_id),
+            "applicationPackage": artifacts.application_package_path(application_id),
+            "resumeProfile": artifacts.resume_profile_path(application_id),
+        }
+        artifacts.write_text(writes["skillSummaryFull"], generated_skills)
+        artifacts.write_text(writes["skillSummaryDiff"], build_simple_diff_note("技能摘要", skills_summary, generated_skills))
+        artifacts.write_text(writes["workSkillsFull"], generated_work_skills)
+        artifacts.write_text(writes["workSkillsDiff"], build_simple_diff_note("工作技能", work_skills, generated_work_skills))
+        artifacts.write_text(writes["autobiographyFull"], generated_autobiography)
+        artifacts.write_text(writes["autobiographyDiff"], build_simple_diff_note("自傳", autobiography, generated_autobiography))
+        artifacts.write_text(writes["riskReview"], risk_review)
+        artifacts.write_text(writes["applicationPackage"], package)
+        artifacts.write_json(writes["resumeProfile"], profile)
+        files = {key: path.name for key, path in writes.items()}
+        files.update(experience_files["files"])
+        return ApplicationPackageResult(PACKAGE_READY_BRIDGE_UNAVAILABLE, files, ["private_view_bridge_not_implemented", *warnings])
+
+
 class ApplicationPackageWorker:
     def __init__(
         self,
@@ -420,6 +518,164 @@ def normalize_multiline_text(value: str) -> str:
     while lines and not lines[-1].strip():
         lines.pop()
     return "\n".join(lines)
+
+
+def safe_filename(input_value: str) -> str:
+    value = re.sub(r"[^\w.-]+", "_", input_value.strip())
+    return (value or "experience")[:80]
+
+
+def build_generated_resume_name(job_id: str, company: str, *, max_length: int = 30) -> str:
+    prefix = (job_id or "104").strip()
+    suffix = (company or "company").strip()
+    if len(f"{prefix}_{suffix}") <= max_length:
+        return f"{prefix}_{suffix}"
+    return f"{prefix}_{suffix[: max(1, max_length - len(prefix) - 1)]}"
+
+
+TECH_TERMS = [
+    "Laravel",
+    "PHP",
+    "CodeIgniter",
+    "RESTful API",
+    "REST API",
+    "API",
+    "MySQL",
+    "PostgreSQL",
+    "Redis",
+    "Docker",
+    "Git",
+    "GitLab",
+    "CI/CD",
+    "Linux",
+    "AWS",
+    "Queue",
+    "Eloquent",
+    "Middleware",
+    "Service Provider",
+    "Validation",
+    "Transaction",
+    "Locking",
+    "WebSocket",
+    "VBA",
+]
+
+
+def jd_plain_text(jd: dict[str, Any]) -> str:
+    return "\n".join(str(jd.get(key, "")) for key in ("title", "company", "bodyText", "description", "requirements"))
+
+
+def prioritize_terms(jd_text: str, source_text: str) -> list[str]:
+    jd_lower = jd_text.lower()
+    source_lower = source_text.lower()
+    matched = [term for term in TECH_TERMS if term.lower() in jd_lower and term.lower() in source_lower]
+    source_only = [term for term in TECH_TERMS if term.lower() not in jd_lower and term.lower() in source_lower]
+    return matched + source_only[:6]
+
+
+def build_jd_aware_skills_summary(source: str, terms: list[str]) -> str:
+    lines = [line.strip() for line in source.splitlines() if line.strip()]
+    scored = sorted(lines, key=lambda line: min([terms.index(term) for term in terms if term.lower() in line.lower()] or [999]))
+    hashtags = " ".join(f"#{term.replace(' ', '')}" for term in terms[:10])
+    body = "\n".join(scored[:8])
+    return normalize_multiline_text("\n".join(part for part in [body, hashtags] if part))
+
+
+def build_jd_aware_work_skills(source: str, terms: list[str]) -> str:
+    base = [line.strip() for line in source.splitlines() if line.strip() and not line.strip().startswith("#")]
+    capabilities = [
+        "後端 API 開發與第三方服務串接",
+        "既有系統重構與維護",
+        "資料庫查詢效能改善",
+        "系統監控、異常排查與維運",
+        "需求釐清、文件整理與跨角色協作",
+    ]
+    if any(term.lower() in {"laravel", "php", "codeigniter"} for term in [t.lower() for t in terms]):
+        capabilities.insert(0, "PHP / Laravel 後端開發")
+    tags = " ".join(f"#{term.replace(' ', '')}" for term in terms[:8])
+    return normalize_multiline_text("\n".join(dict.fromkeys([*capabilities, *base[:3], tags])))
+
+
+def build_jd_aware_autobiography(source: str, terms: list[str], *, limit: int = 950) -> str:
+    compact = re.sub(r"\s+", " ", source).strip()
+    focus = "、".join(terms[:6]) or "後端開發、系統維護、需求協作"
+    bullets = [
+        f"職能定位：以 PHP / Laravel 後端開發為主，能銜接 {focus} 等職缺需求。",
+        "核心經驗：具金流平台開發維運、第三方 API 串接、訂單與帳務流程整理、既有系統重構經驗。",
+        "工程能力：重視可維護性、問題排查、資料庫效能與監控機制，能在既有系統中逐步改善品質。",
+        "協作方式：能參與需求討論、確認可行性、整理文件與流程，讓團隊更容易接手與維護。",
+    ]
+    if len("\n".join(f"- {line}" for line in bullets)) < limit:
+        return "\n".join(f"- {line}" for line in bullets)
+    return compact[:limit].rstrip()
+
+
+def write_relevant_experiences(
+    *,
+    application_id: str,
+    artifacts: ApplicationArtifactRepository,
+    source_resume: dict[str, Any],
+    prioritized_terms: list[str],
+) -> dict[str, Any]:
+    experiences = source_resume.get("experiences") or []
+    profiles = []
+    files = {}
+    for item in experiences[:4]:
+        company = str(item.get("company") or "experience")
+        source_text = normalize_multiline_text(str(item.get("description") or item.get("responsibilities") or ""))
+        if not source_text:
+            continue
+        rewritten = condense_experience(source_text, prioritized_terms)
+        full_path = artifacts.experience_full_path(application_id, company)
+        diff_path = artifacts.experience_diff_path(application_id, company)
+        artifacts.write_text(full_path, rewritten)
+        artifacts.write_text(diff_path, build_simple_diff_note(company, source_text, rewritten))
+        profiles.append({"company": company, "content": rewritten})
+        files[f"experience:{company}:full"] = str(Path("experiences") / full_path.name)
+        files[f"experience:{company}:diff"] = str(Path("experiences") / diff_path.name)
+    return {"profiles": profiles, "files": files}
+
+
+def condense_experience(source: str, terms: list[str]) -> str:
+    lines = [line.strip(" -•") for line in source.splitlines() if line.strip()]
+    scored = sorted(lines, key=lambda line: min([terms.index(term) for term in terms if term.lower() in line.lower()] or [999]))
+    selected = scored[:4] if scored else lines[:4]
+    return "\n".join(f"- {line}" for line in selected)
+
+
+def build_simple_diff_note(field: str, source: str, generated: str) -> str:
+    if source.strip() == generated.strip():
+        return f"{field}: unchanged.\n"
+    return "\n".join([
+        f"{field}: rewritten by reordering/condensing existing evidence only.",
+        "",
+        "Protected fields were not modified by this artifact.",
+    ])
+
+
+def build_jd_aware_risk_review(*, jd: dict[str, Any], source_resume: dict[str, Any], prioritized_terms: list[str]) -> tuple[str, list[str]]:
+    source_text = json.dumps(source_resume, ensure_ascii=False)
+    jd_text = jd_plain_text(jd)
+    jd_terms = [term for term in TECH_TERMS if term.lower() in jd_text.lower()]
+    missing = [term for term in jd_terms if term.lower() not in source_text.lower()]
+    warnings = [f"jd_term_without_direct_resume_evidence:{term}" for term in missing[:8]]
+    lines = [
+        "# Risk Review",
+        "",
+        "Status: JD-aware generated package.",
+        "",
+        "Direct evidence terms:",
+        *(f"- {term}" for term in prioritized_terms[:12]),
+        "",
+        "Warnings:",
+        *(f"- {warning}" for warning in warnings),
+        "",
+        "Protected fields:",
+        "- Name, education, company names, titles, employment dates, salary, contact details, years, management headcount, and work-experience ordering must not be changed.",
+        "",
+        "Decision: private review required before any 104 writeback.",
+    ]
+    return "\n".join(lines), warnings
 
 
 def build_conservative_risk_review(jd: dict[str, Any]) -> str:

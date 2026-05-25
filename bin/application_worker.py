@@ -16,6 +16,7 @@ from job_notify.application_workflow import (
     ApplicationWorker,
     BasicJobDetailProvider,
     ConservativePackageGenerator,
+    JdAwarePackageGenerator,
     ResumeExportAdapter,
 )
 from job_notify.config import add_config_args, load_config
@@ -31,6 +32,7 @@ def main() -> int:
     parser.add_argument("--uid", default="", help="Read a specific user's application request directly. Use with --application-id.")
     parser.add_argument("--fixture-request-json", help="Read one request JSON from disk instead of Firestore.")
     parser.add_argument("--generate-package", action="store_true", help="Process generating_package requests into private package artifacts.")
+    parser.add_argument("--package-generator", choices=["conservative", "jd-aware"], default="jd-aware")
     parser.add_argument("--skip-resume", action="store_true", help="Stop after writing jd.json and fetching_resume status.")
     parser.add_argument("--no-fetch-remote-job", action="store_true", help="Use request metadata only for jd.json.")
     args = parser.parse_args()
@@ -43,10 +45,11 @@ def main() -> int:
     else:
         store = FirestoreApplicationStore(config, application_id=args.application_id, uid=args.uid)
     if args.generate_package:
+        generator = ConservativePackageGenerator() if args.package_generator == "conservative" else JdAwarePackageGenerator()
         worker = ApplicationPackageWorker(
             store=store,
             artifacts=artifacts,
-            generator=ConservativePackageGenerator(),
+            generator=generator,
         )
         results = worker.run_once(limit=args.limit)
         print(json.dumps({"processed": len(results), "results": results}, ensure_ascii=False, indent=2))
