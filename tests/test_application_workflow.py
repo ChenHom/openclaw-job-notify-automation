@@ -155,3 +155,13 @@ def test_worker_maps_auth_blocked_resume_export(tmp_path):
 
     assert results == [{"applicationId": "104_8abcd_程式", "status": BLOCKED_RESUME_FETCH_AUTH_REQUIRED}]
     assert store.status_updates[-1][1] == BLOCKED_RESUME_FETCH_AUTH_REQUIRED
+
+
+def test_fixture_application_store_can_filter_requested_items_by_limit():
+    store = FixtureApplicationStore([
+        request(applicationId="a1", status="requested"),
+        request(applicationId="a2", status="generating_package"),
+        request(applicationId="a3", status="requested"),
+    ])
+
+    assert [item["applicationId"] for item in store.list_requested(limit=1)] == ["a1"]

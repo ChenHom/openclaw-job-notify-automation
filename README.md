@@ -47,6 +47,7 @@ bin/job_feedback_weekly_report.py --feedback-json examples/feedback.fixture.json
 bin/104_job_notify.py --dry-run --pages-per-keyword 1 --limit 1 --profile-dir /tmp/job-notify-demo-profile
 bin/application_worker.py --limit 5 --profile-dir /home/hom/services/openclaw-job-notify-profile
 bin/application_worker.py --limit 5 --skip-resume --no-fetch-remote-job --profile-dir /tmp/job-notify-demo-profile
+bin/application_worker.py --uid smoke_p1_p3 --application-id '104_smoke_p1p3_程式' --no-fetch-remote-job --profile-dir /home/hom/services/openclaw-job-notify-profile
 ```
 
 ## 104 Application Workflow
@@ -65,6 +66,8 @@ Private artifacts are written under:
 The worker keeps Firestore public-safe: it updates status fields only and does not write full JD text, resume text, generated package content, contact info, 104 session data, or local artifact paths to Firestore.
 
 Phase 2 can be run alone with `--skip-resume`. Phase 3 calls `/home/hom/services/104-resume-automation` by default and reads its explicit `--result` JSON contract instead of parsing stdout.
+
+For production-safe smoke tests, pass both `--uid` and `--application-id` so the worker reads one exact request document directly instead of scanning collection groups. This avoids composite-index requirements and prevents a smoke run from picking up unrelated real requests.
 
 ## Verification
 

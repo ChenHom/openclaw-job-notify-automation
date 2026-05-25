@@ -51,6 +51,7 @@ Current implementation status:
 - 2026-05-25 simplified Phase 1 is implemented in `/home/hom/services/openclaw-notify-inbox`.
 - The hosted UI now adds an `應徵` button to weekly 104 job cards and daily 104 job cards.
 - Clicking `應徵` writes a minimal public-safe request to `jobApplications/{uid}/requests/{applicationId}`.
+- 2026-05-25 Firebase Hosting and Firestore rules were deployed to `openclaw-notify-inbox-hom`.
 - The simplified `applicationId` is stable per 104 job and resume: `104_<jobId>_程式`; if no job id exists, it falls back to a canonical URL hash.
 - Repeated clicks merge into the same request document and update the request instead of creating multiple active attempts.
 - Firestore rules now allow only the simplified public-safe field allowlist.
@@ -133,6 +134,7 @@ Current implementation status:
 - New entry point: `bin/application_worker.py`.
 - New module: `job_notify/application_workflow.py`.
 - The worker reads `requested` application requests, creates private artifacts under `/home/hom/services/openclaw-job-notify-profile/applications/<applicationId>/`, writes `manifest.json` and `jd.json`, then moves the request to `fetching_resume`.
+- Production-safe smoke runs can pass `--uid` and `--application-id` to read one exact Firestore request directly, avoiding collection-group composite-index requirements and preventing accidental processing of unrelated requests.
 - The first `BasicJobDetailProvider` can fetch a simple text snapshot from the 104 URL, but it also supports metadata-only snapshots for reliable local runs.
 - Full JD hash identity, closed-job classification, and new attempt creation are deferred.
 
@@ -191,6 +193,7 @@ Current implementation status:
 - On success, the worker moves the request to `generating_package`.
 - Auth block and missing resume statuses are mapped to stable public-safe statuses.
 - Claw Notify remediation alert/rate-limit is deferred.
+- 2026-05-25 smoke verified one controlled request `104_smoke_p1p3_程式`: P2 produced `manifest.json` and `jd.json`; P3 produced `source-resume.json`; Firestore status reached `generating_package`; Firestore fields remained public-safe.
 
 Goal:
 

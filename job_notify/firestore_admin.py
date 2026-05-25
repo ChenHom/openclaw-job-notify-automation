@@ -111,9 +111,20 @@ def write_document(collection: str, doc_id: str, data: dict[str, Any], config: J
     firestore_request(f"/{collection}/{urllib.parse.quote(doc_id, safe='')}", method="PATCH", body={"fields": to_fields(data)}, config=config)
 
 
-def write_document_path(path: str, data: dict[str, Any], config: JobNotifyConfig | None = None) -> None:
+def write_document_path(path: str, data: dict[str, Any], config: JobNotifyConfig | None = None, *, merge: bool = False) -> None:
     safe_path = "/" + "/".join(urllib.parse.quote(part, safe="") for part in path.strip("/").split("/"))
+    if merge:
+        update_mask = urllib.parse.urlencode([("updateMask.fieldPaths", key) for key in data.keys()])
+        safe_path = f"{safe_path}?{update_mask}"
     firestore_request(safe_path, method="PATCH", body={"fields": to_fields(data)}, config=config)
+
+
+def read_document_path(path: str, config: JobNotifyConfig | None = None) -> dict[str, Any] | None:
+    safe_path = "/" + "/".join(urllib.parse.quote(part, safe="") for part in path.strip("/").split("/"))
+    doc = firestore_request(safe_path, method="GET", config=config)
+    if not doc:
+        return None
+    return {"id": doc["name"].split("/")[-1], **from_fields(doc.get("fields", {}))}
 
 
 class FirestoreFeedbackStore:
@@ -132,30 +143,48 @@ class FirestoreFeedbackStore:
 class FirestoreApplicationStore:
     """Application request adapter backed by Firestore REST."""
 
-    def __init__(self, config: JobNotifyConfig | None = None):
+    def __init__(self, config: JobNotifyConfig | None = None, application_id: str = "", uid: str = ""):
         self.config = config or load_config()
+        self.application_id = application_id
+        self.uid = uid
 
     def list_requested(self, limit: int = 5) -> list[dict[str, Any]]:
-        return run_query(
+        if self.uid and self.application_id:
+            doc = read_document_path(f"jobApplications/{self.uid}/requests/{self.application_id}", config=self.config)
+            return [doc] if doc and doc.get("status") == "requested" else []
+
+        status_filter = {
+            "fieldFilter": {
+                "field": {"fieldPath": "status"},
+                "op": "EQUAL",
+                "value": {"stringValue": "requested"},
+            }
+        }
+        if self.application_id:
+            where = {
+                "fieldFilter": {
+                    "field": {"fieldPath": "applicationId"},
+                    "op": "EQUAL",
+                    "value": {"stringValue": self.application_id},
+                }
+            }
+        else:
+            where = status_filter
+        results = run_query(
             {
                 "from": [{"collectionId": "requests", "allDescendants": True}],
-                "where": {
-                    "fieldFilter": {
-                        "field": {"fieldPath": "status"},
-                        "op": "EQUAL",
-                        "value": {"stringValue": "requested"},
-                    }
-                },
+                "where": where,
                 "limit": limit,
             },
             config=self.config,
         )
+        return [item for item in results if item.get("status") == "requested"][:limit]
 
     def update_status(self, request: dict[str, Any], status: str, extra: dict[str, Any] | None = None) -> None:
         uid = request["uid"]
         request_id = request["applicationId"]
         payload = {"status": status, **(extra or {})}
-        write_document_path(f"jobApplications/{uid}/requests/{request_id}", payload, config=self.config)
+        write_document_path(f"jobApplications/{uid}/requests/{request_id}", payload, config=self.config, merge=True)
 
 
 class FixtureFeedbackStore:
