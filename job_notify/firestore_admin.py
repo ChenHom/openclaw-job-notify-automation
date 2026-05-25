@@ -111,6 +111,11 @@ def write_document(collection: str, doc_id: str, data: dict[str, Any], config: J
     firestore_request(f"/{collection}/{urllib.parse.quote(doc_id, safe='')}", method="PATCH", body={"fields": to_fields(data)}, config=config)
 
 
+def write_document_path(path: str, data: dict[str, Any], config: JobNotifyConfig | None = None) -> None:
+    safe_path = "/" + "/".join(urllib.parse.quote(part, safe="") for part in path.strip("/").split("/"))
+    firestore_request(safe_path, method="PATCH", body={"fields": to_fields(data)}, config=config)
+
+
 class FirestoreFeedbackStore:
     """FeedbackStore adapter backed by Firestore REST."""
 
@@ -122,6 +127,35 @@ class FirestoreFeedbackStore:
 
     def write_document(self, collection: str, doc_id: str, data: dict[str, Any]) -> None:
         write_document(collection, doc_id, data, config=self.config)
+
+
+class FirestoreApplicationStore:
+    """Application request adapter backed by Firestore REST."""
+
+    def __init__(self, config: JobNotifyConfig | None = None):
+        self.config = config or load_config()
+
+    def list_requested(self, limit: int = 5) -> list[dict[str, Any]]:
+        return run_query(
+            {
+                "from": [{"collectionId": "requests", "allDescendants": True}],
+                "where": {
+                    "fieldFilter": {
+                        "field": {"fieldPath": "status"},
+                        "op": "EQUAL",
+                        "value": {"stringValue": "requested"},
+                    }
+                },
+                "limit": limit,
+            },
+            config=self.config,
+        )
+
+    def update_status(self, request: dict[str, Any], status: str, extra: dict[str, Any] | None = None) -> None:
+        uid = request["uid"]
+        request_id = request["applicationId"]
+        payload = {"status": status, **(extra or {})}
+        write_document_path(f"jobApplications/{uid}/requests/{request_id}", payload, config=self.config)
 
 
 class FixtureFeedbackStore:
@@ -136,3 +170,19 @@ class FixtureFeedbackStore:
 
     def write_document(self, collection: str, doc_id: str, data: dict[str, Any]) -> None:
         self.writes.append((collection, doc_id, data))
+
+
+class FixtureApplicationStore:
+    """Application request store for tests and dry local workflows."""
+
+    def __init__(self, requests: list[dict[str, Any]] | None = None):
+        self.requests = requests or []
+        self.status_updates: list[tuple[str, str, dict[str, Any]]] = []
+
+    def list_requested(self, limit: int = 5) -> list[dict[str, Any]]:
+        return [item for item in self.requests if item.get("status") == "requested"][:limit]
+
+    def update_status(self, request: dict[str, Any], status: str, extra: dict[str, Any] | None = None) -> None:
+        self.status_updates.append((request["applicationId"], status, extra or {}))
+        request["status"] = status
+        request.update(extra or {})

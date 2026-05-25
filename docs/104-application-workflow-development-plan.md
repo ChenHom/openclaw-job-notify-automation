@@ -127,6 +127,15 @@ Done criteria:
 
 Owner repo: `/home/hom/services/openclaw-job-notify-automation`
 
+Current implementation status:
+
+- 2026-05-25 simplified Phase 2 is implemented.
+- New entry point: `bin/application_worker.py`.
+- New module: `job_notify/application_workflow.py`.
+- The worker reads `requested` application requests, creates private artifacts under `/home/hom/services/openclaw-job-notify-profile/applications/<applicationId>/`, writes `manifest.json` and `jd.json`, then moves the request to `fetching_resume`.
+- The first `BasicJobDetailProvider` can fetch a simple text snapshot from the 104 URL, but it also supports metadata-only snapshots for reliable local runs.
+- Full JD hash identity, closed-job classification, and new attempt creation are deferred.
+
 Goal:
 
 Worker picks `requested` applications, fetches or reconstructs complete 104 job detail, snapshots JD, and moves to `fetching_resume`.
@@ -141,22 +150,29 @@ Private artifacts:
 
 TDD first:
 
-- Canonical URL removes tracking params.
+- Application artifact directories remain under the private profile `applications/` root.
+- Job detail provider failure moves to `blocked_job_detail_unavailable`.
+- JD snapshot is written only under private profile artifacts.
+- Worker creates `manifest.json` and `jd.json`, then moves to `fetching_resume`.
+
+Deferred TDD:
+
+- Canonical URL removes tracking params beyond hash stripping.
 - Closed or unavailable job moves to `blocked_job_closed` or `blocked_job_detail_unavailable`.
 - Changed JD hash creates a new attempt when appropriate.
-- JD snapshot is written only under private profile artifacts.
 
 Implementation:
 
-- Add `application_worker.py` entry point.
-- Add `JobDetailProvider` port.
-- Add private artifact repository.
-- Update manifest with status and JD hash.
+- `bin/application_worker.py --limit 5`
+- `--skip-resume` stops after Phase 2.
+- `--no-fetch-remote-job` writes a metadata-only `jd.json`.
+- `ApplicationArtifactRepository` writes private JSON artifacts atomically.
+- `ApplicationWorker` updates Firestore status through `FirestoreApplicationStore`.
 
 Done criteria:
 
 - Unit tests pass.
-- Dry-run on a fixture creates `manifest.json` and `jd.json`.
+- Fixture worker tests create `manifest.json` and `jd.json`.
 - Firestore contains only non-sensitive status and summary.
 
 ## Phase 3 - Resume Snapshot Integration
@@ -165,6 +181,16 @@ Owner repos:
 
 - `/home/hom/services/openclaw-job-notify-automation`
 - `/home/hom/services/104-resume-automation`
+
+Current implementation status:
+
+- 2026-05-25 simplified Phase 3 is implemented.
+- `104-resume-automation` now supports `--output <path>` and `--result <path>`.
+- `resume:export` writes an explicit result JSON and never requires callers to parse stdout.
+- `ResumeExportAdapter` calls the 104 CLI, reads the result file, and writes `source-resume.json` under the private application artifact directory.
+- On success, the worker moves the request to `generating_package`.
+- Auth block and missing resume statuses are mapped to stable public-safe statuses.
+- Claw Notify remediation alert/rate-limit is deferred.
 
 Goal:
 
@@ -185,6 +211,9 @@ TDD first:
 - Non-zero exit with a valid blocked-auth result maps to `blocked_resume_fetch_auth_required`.
 - Missing resume moves to `blocked_resume_not_found`.
 - Login/OTP/captcha block moves to `blocked_resume_fetch_auth_required`.
+
+Deferred TDD:
+
 - Worker does not retry auth-blocked requests forever.
 - Auth-block writes a public-safe remediation event that can be sent through Claw Notify.
 - Auth-block notification is rate-limited so a broken session does not spam.

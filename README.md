@@ -8,6 +8,7 @@
 
 - `bin/104_job_notify.py`: weekly 104 job search payload sender.
 - `bin/daily_high_fit_job_notify.py`: daily high-fit job report payload sender.
+- `bin/application_worker.py`: simplified 104 application workflow worker; converts `requested` application requests into private `jd.json` / `source-resume.json` artifacts.
 - `bin/job_feedback_profile.py`: rebuilds long-term preference profiles from Firestore feedback.
 - `bin/job_feedback_weekly_report.py`: generates weekly preference reports and search hints.
 - `job_notify/`: pure domain rules, Firestore admin adapter, search hint handling, sender adapter.
@@ -44,7 +45,26 @@ Useful commands:
 bin/job_feedback_profile.py --feedback-json examples/feedback.fixture.json --dry-run --profile-dir /tmp/job-notify-demo-profile
 bin/job_feedback_weekly_report.py --feedback-json examples/feedback.fixture.json --dry-run --profile-dir /tmp/job-notify-demo-profile
 bin/104_job_notify.py --dry-run --pages-per-keyword 1 --limit 1 --profile-dir /tmp/job-notify-demo-profile
+bin/application_worker.py --limit 5 --profile-dir /home/hom/services/openclaw-job-notify-profile
+bin/application_worker.py --limit 5 --skip-resume --no-fetch-remote-job --profile-dir /tmp/job-notify-demo-profile
 ```
+
+## 104 Application Workflow
+
+The simplified Phase 2/3 worker processes `jobApplications/{uid}/requests/{applicationId}` documents with `status: requested`.
+
+Private artifacts are written under:
+
+```text
+<profile-dir>/applications/<applicationId>/
+  manifest.json
+  jd.json
+  source-resume.json
+```
+
+The worker keeps Firestore public-safe: it updates status fields only and does not write full JD text, resume text, generated package content, contact info, 104 session data, or local artifact paths to Firestore.
+
+Phase 2 can be run alone with `--skip-resume`. Phase 3 calls `/home/hom/services/104-resume-automation` by default and reads its explicit `--result` JSON contract instead of parsing stdout.
 
 ## Verification
 
