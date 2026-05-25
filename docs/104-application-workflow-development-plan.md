@@ -46,6 +46,16 @@ Owner repos:
 - `/home/hom/services/openclaw-notify-inbox`
 - `/home/hom/services/openclaw-job-notify-automation`
 
+Current implementation status:
+
+- 2026-05-25 simplified Phase 1 is implemented in `/home/hom/services/openclaw-notify-inbox`.
+- The hosted UI now adds an `應徵` button to weekly 104 job cards and daily 104 job cards.
+- Clicking `應徵` writes a minimal public-safe request to `jobApplications/{uid}/requests/{applicationId}`.
+- The simplified `applicationId` is stable per 104 job and resume: `104_<jobId>_程式`; if no job id exists, it falls back to a canonical URL hash.
+- Repeated clicks merge into the same request document and update the request instead of creating multiple active attempts.
+- Firestore rules now allow only the simplified public-safe field allowlist.
+- Full attempt lifecycle, 60-day reopen policy, JD-hash based new attempts, and automation-side worker processing are intentionally deferred to Phase 2+.
+
 Goal:
 
 When the user presses `應徵` on a 104 high-fit job, create or reuse an application attempt without generating private content yet.
@@ -59,17 +69,23 @@ jobApplications/{uid}/requests/{applicationId}
 Public-safe fields:
 
 - `applicationId`
-- `jobIdentityKey`
-- `attemptKey`
 - `status`
 - `jobUrl`
-- `canonicalJobUrlHash`
 - `resumeName: "程式"`
 - `sourceNotificationId`
 - `title`
 - `company`
+- `jobId`
+- `source`
+- `uid`
 - `createdAt`
 - `updatedAt`
+
+Deferred fields:
+
+- `jobIdentityKey`
+- `attemptKey`
+- `canonicalJobUrlHash`
 - `staleAfter`
 - `expiresAt`
 - `privateViewStatus`
@@ -87,22 +103,24 @@ TDD first:
 
 - `應徵` creates one request.
 - Repeated `應徵` for the same active attempt reuses the request.
+- Firestore payload sanitizer rejects forbidden fields.
+
+Deferred TDD:
+
 - Terminal attempts can create a new attempt.
 - Same URL after 60 days creates a new attempt.
 - Same URL with changed JD hash creates a new attempt.
-- Firestore payload sanitizer rejects forbidden fields.
 
 Implementation:
 
 - Add `應徵` action to high-fit 104 job cards.
 - Add Firestore rules for `jobApplications/{uid}/requests/{applicationId}`.
 - Add request creation helper in inbox JS.
-- Add automation-side domain functions for attempt identity and lifecycle.
+- Defer automation-side lifecycle functions until the worker needs them.
 
 Done criteria:
 
 - Inbox tests pass.
-- Automation domain tests pass.
 - No private package content appears in Firestore fixtures.
 
 ## Phase 2 - Job Detail Snapshot Worker
