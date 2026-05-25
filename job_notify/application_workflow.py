@@ -11,6 +11,7 @@ import json
 import re
 import subprocess
 import tempfile
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -398,10 +399,12 @@ class ApplicationPackageWorker:
         store: ApplicationStore,
         artifacts: ApplicationArtifactRepository,
         generator: ConservativePackageGenerator | None = None,
+        private_view_base_url: str = "http://127.0.0.1:8765",
     ):
         self.store = store
         self.artifacts = artifacts
         self.generator = generator or ConservativePackageGenerator()
+        self.private_view_base_url = private_view_base_url.rstrip("/")
 
     def run_once(self, limit: int = 5) -> list[dict[str, Any]]:
         return [self.process_request(request) for request in self.store.list_generating_package(limit)]
@@ -420,6 +423,7 @@ class ApplicationPackageWorker:
                 "status": result.status,
                 "files": result.files,
                 "warnings": result.warnings,
+                "privateViewUrl": build_private_view_url(self.private_view_base_url, application_id),
             },
         })
         return {"applicationId": application_id, "status": result.status}
@@ -518,6 +522,10 @@ def normalize_multiline_text(value: str) -> str:
     while lines and not lines[-1].strip():
         lines.pop()
     return "\n".join(lines)
+
+
+def build_private_view_url(base_url: str, application_id: str) -> str:
+    return f"{base_url.rstrip('/')}/package?applicationId={urllib.parse.quote(application_id, safe='')}"
 
 
 def safe_filename(input_value: str) -> str:

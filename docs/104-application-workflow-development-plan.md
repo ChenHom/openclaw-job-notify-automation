@@ -481,6 +481,11 @@ python3 bin/application_private_view_server.py --profile-dir /home/hom/services/
 - Package endpoint: `http://127.0.0.1:8765/package?applicationId=<applicationId>`.
 - The page renders copy-ready `技能摘要`, `工作技能`, `自傳`, and `risk-review.md`.
 - The response is blocked if unsafe markers such as source snapshot names, cookies, or tokens appear in the rendered HTML.
+- The page now includes private-only review actions:
+  - `確認，進入 P6`: marks the private manifest `package_ready`.
+  - `儲存手動修正版`: writes versioned `*.manual-v<N>.md` artifacts and keeps generated originals unchanged.
+  - `取消此應徵包`: marks the private manifest `cancelled`.
+- The package worker stores a private `privateViewUrl` in the local manifest package block, for example `http://127.0.0.1:8765/package?applicationId=<encodedApplicationId>`. This value is private-manifest metadata, not package content in Firestore.
 - Verified locally with `104_8l1s4_程式`: health returned OK and package HTML rendered without exposing `source-resume.json`.
 
 ## Phase 6 - 104 Resume Draft Create / Update

@@ -13,11 +13,14 @@ from job_notify.application_workflow import (
     FETCHING_RESUME,
     GENERATING_PACKAGE,
     JdAwarePackageGenerator,
+    NEEDS_MANUAL_REVIEW,
+    PACKAGE_READY,
     PACKAGE_READY_BRIDGE_UNAVAILABLE,
     ResumeExportOutcome,
     build_generated_resume_name,
+    build_private_view_url,
 )
-from job_notify.application_private_view import render_package_view
+from job_notify.application_private_view import handle_package_action, render_package_view
 from job_notify.firestore_admin import FixtureApplicationStore
 
 
@@ -232,6 +235,7 @@ def test_package_worker_moves_generating_package_to_bridge_unavailable(tmp_path)
     manifest = json.loads(repo.manifest_path(req["applicationId"]).read_text(encoding="utf-8"))
     assert manifest["status"] == PACKAGE_READY_BRIDGE_UNAVAILABLE
     assert manifest["package"]["files"]["applicationPackage"] == "application-package.md"
+    assert manifest["package"]["privateViewUrl"].endswith("/package?applicationId=104_8abcd_%E7%A8%8B%E5%BC%8F")
 
 
 def test_jd_aware_package_generator_writes_resume_profile_and_allowed_fields(tmp_path):
@@ -280,6 +284,10 @@ def test_generated_resume_name_truncates_company_suffix_only():
     assert len(name) == 12
 
 
+def test_build_private_view_url_quotes_application_id():
+    assert build_private_view_url("http://127.0.0.1:8765/", "104_8abcd_程式") == "http://127.0.0.1:8765/package?applicationId=104_8abcd_%E7%A8%8B%E5%BC%8F"
+
+
 def test_private_package_view_renders_copy_ready_fields_without_source_snapshot(tmp_path):
     req = request(status=GENERATING_PACKAGE)
     repo = ApplicationArtifactRepository(tmp_path)
@@ -305,3 +313,50 @@ def test_private_package_view_renders_copy_ready_fields_without_source_snapshot(
     assert "104 私密應徵包" in view.body
     assert "PHP\nLaravel" in view.body
     assert "source-resume.json" not in view.body
+    assert "確認，進入 P6" in view.body
+
+
+def test_private_package_view_approve_updates_manifest(tmp_path):
+    req = request(status=GENERATING_PACKAGE)
+    repo = ApplicationArtifactRepository(tmp_path)
+    repo.update_manifest(req["applicationId"], {
+        "applicationId": req["applicationId"],
+        "status": PACKAGE_READY_BRIDGE_UNAVAILABLE,
+        "package": {"status": PACKAGE_READY_BRIDGE_UNAVAILABLE},
+    })
+
+    view = handle_package_action(
+        application_id=req["applicationId"],
+        artifacts=repo,
+        raw_body=b"action=approve",
+    )
+
+    assert view.status_code == 303
+    manifest = json.loads(repo.manifest_path(req["applicationId"]).read_text(encoding="utf-8"))
+    assert manifest["status"] == PACKAGE_READY
+    assert manifest["review"]["status"] == "approved"
+
+
+def test_private_package_view_saves_manual_revision_without_overwriting_generated(tmp_path):
+    req = request(status=GENERATING_PACKAGE)
+    repo = ApplicationArtifactRepository(tmp_path)
+    repo.update_manifest(req["applicationId"], {
+        "applicationId": req["applicationId"],
+        "status": PACKAGE_READY_BRIDGE_UNAVAILABLE,
+    })
+    repo.write_text(repo.skill_summary_full_path(req["applicationId"]), "generated skills")
+
+    handle_package_action(
+        application_id=req["applicationId"],
+        artifacts=repo,
+        raw_body="action=save_manual&skillsSummary=manual+skills&workSkills=manual+work&autobiography=manual+auto&note=checked".encode(),
+    )
+
+    app_dir = repo.application_dir(req["applicationId"])
+    assert repo.skill_summary_full_path(req["applicationId"]).read_text(encoding="utf-8").strip() == "generated skills"
+    assert (app_dir / "skill-summary.manual-v1.md").read_text(encoding="utf-8").strip() == "manual skills"
+    assert (app_dir / "work-skills.manual-v1.md").read_text(encoding="utf-8").strip() == "manual work"
+    assert (app_dir / "autobiography.manual-v1.md").read_text(encoding="utf-8").strip() == "manual auto"
+    manifest = json.loads(repo.manifest_path(req["applicationId"]).read_text(encoding="utf-8"))
+    assert manifest["status"] == NEEDS_MANUAL_REVIEW
+    assert manifest["manualReview"]["version"] == 1

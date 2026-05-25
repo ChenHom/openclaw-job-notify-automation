@@ -11,7 +11,7 @@ from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from job_notify.application_private_view import render_health, render_package_view
+from job_notify.application_private_view import handle_package_action, render_health, render_package_view
 from job_notify.application_workflow import ApplicationArtifactRepository
 from job_notify.config import add_config_args, load_config
 
@@ -33,6 +33,27 @@ class PrivateViewHandler(BaseHTTPRequestHandler):
         body = view.body.encode("utf-8")
         self.send_response(view.status_code)
         self.send_header("Content-Type", view.content_type)
+        for key, value in (view.headers or {}).items():
+            self.send_header(key, value)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_POST(self) -> None:  # noqa: N802 - stdlib handler API
+        parsed = urlparse(self.path)
+        if parsed.path != "/package/action":
+            view = type(render_health())(404, "text/plain; charset=utf-8", "not found")
+        else:
+            application_id = parse_qs(parsed.query).get("applicationId", [""])[0]
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            raw_body = self.rfile.read(length)
+            view = handle_package_action(application_id=application_id, artifacts=self.artifacts, raw_body=raw_body)
+
+        body = view.body.encode("utf-8")
+        self.send_response(view.status_code)
+        self.send_header("Content-Type", view.content_type)
+        for key, value in (view.headers or {}).items():
+            self.send_header(key, value)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
