@@ -572,6 +572,8 @@ Done criteria:
 
 - Added `104-resume-automation` command `npm run resume:draft`.
 - The current implementation is dry-run first: it opens the 104 profile page, checks the add-resume entry, loads `resume-profile.json`, detects whether the generated resume name already exists, then writes a machine-readable plan.
+- It requires P5 approval by default. The sibling private `manifest.json` must contain `status: "package_ready"` and `review.status: "approved"` before the plan can allow 104 writes.
+- If approval is missing, the result is `blocked_package_not_approved`, `writes104: false`, and no 104 write action is attempted.
 - It does not click `開始製作`, save, or submit.
 - Verified with `104_8l1s4_程式`:
 
@@ -579,7 +581,8 @@ Done criteria:
 npm run resume:draft -- --profile /home/hom/services/openclaw-job-notify-profile/applications/104_8l1s4_程式/resume-profile.json --dry-run
 ```
 
-- Result: `dry_run_ready`, target resume `8l1s4_沃龍超遊股份有限公司`, action `create_from_source_resume`, `addResumeEntryAvailable: true`, `submitsApplication: false`.
+- Real current result before P5 approval: `blocked_package_not_approved`, target resume `8l1s4_沃龍超遊股份有限公司`, action `create_from_source_resume`, `addResumeEntryAvailable: true`, `writes104: false`, `submitsApplication: false`.
+- Simulated approved manifest result: `dry_run_ready`, action `create_from_source_resume`, `writes104: true`, `submitsApplication: false`.
 
 ## Phase 7 - Assisted Application / Manual Submission Tracking
 
