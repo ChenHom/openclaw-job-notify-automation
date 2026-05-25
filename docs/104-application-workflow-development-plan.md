@@ -459,7 +459,87 @@ Done criteria:
 - Package is usable without SSH or terminal file digging.
 - Firebase UI degrades gracefully when the private endpoint is not reachable.
 
-## Phase 6 - Manual Submission Tracking
+## Phase 6 - 104 Resume Draft Create / Update
+
+Owner repos:
+
+- `/home/hom/services/104-resume-automation`
+- `/home/hom/services/openclaw-job-notify-automation`
+
+Goal:
+
+After the user approves the private package, create or update a company-specific 104 online resume draft through 104's official `新增履歷` flow. This phase does not submit applications.
+
+Confirmed scope:
+
+- Source resume: `程式`.
+- Generated resume name format: `<jobCode>_<companyName>`.
+- Reuse rule: one generated resume per company. Same-company reruns update the existing draft instead of creating duplicate resumes.
+- Protected fields are never changed: name, education, company names, job titles, employment dates, salary, contact details, years of experience, management headcount, and work-experience ordering.
+- Writable fields are limited to the approved generated package:
+  - `技能摘要`
+  - `工作技能`
+  - `自傳`
+  - the most relevant first 3-4 work-experience responsibility sections
+
+2026-05-25 104 UI probe:
+
+- Profile page: `https://pda.104.com.tw/profile/`.
+- The current profile list showed `我的履歷 (4/7)`.
+- `新增履歷` selector: `.profile-index__add[data-gtm-cprofile="profile-新增履歷"]`.
+- Clicking `新增履歷` opens modal `製作你的履歷表`.
+- Available tabs:
+  - `複製履歷`
+  - `AI 履歷掃描`
+  - `手動建立`
+- Recommended automation path:
+  1. Open the profile list with stored 104 auth state.
+  2. Check whether a resume named `<jobCode>_<companyName>` already exists.
+  3. If it exists, open that resume for update.
+  4. If it does not exist, click `新增履歷`.
+  5. Use `複製履歷`.
+  6. Select source resume `程式`.
+  7. Select `一般履歷`.
+  8. Click `開始製作`.
+  9. Set the resume name to `<jobCode>_<companyName>`.
+  10. Replace only allowlisted fields from `resume-profile.json`.
+  11. Save.
+  12. Reopen/read back the 104 resume and compare field values.
+
+Risk boundary:
+
+- `開始製作` can create a real 104 resume and must not be used in blind probe mode.
+- Save is a real 104 write and must only happen after the user approved the generated package.
+- Application submission is not part of Phase 6.
+
+Failure states:
+
+- `blocked_104_auth_required`
+- `blocked_resume_create_failed`
+- `blocked_resume_write_failed`
+- `blocked_resume_verify_failed`
+- `needs_manual_review`
+
+TDD first:
+
+- Existing company-specific resume is reused instead of creating a duplicate.
+- Missing company-specific resume creates through the `新增履歷` / `複製履歷` flow.
+- Generated resume name preserves the job-code prefix and truncates only company-name suffix when needed.
+- Protected fields are absent from the write payload.
+- Work-experience ordering cannot be changed by the writer.
+- Only the first 3-4 selected relevant responsibility sections are writable.
+- Readback mismatch moves to `blocked_resume_verify_failed`.
+- Auth redirect / OTP / captcha moves to `blocked_104_auth_required`.
+- `dry-run` / probe mode never clicks `開始製作` or save.
+
+Done criteria:
+
+- A dry-run can identify whether the target generated resume exists.
+- A controlled create/update run can create or update one company-specific 104 resume draft.
+- Readback verification proves the 104 online draft matches the approved local package.
+- No submission action is clicked.
+
+## Phase 7 - Assisted Application / Manual Submission Tracking
 
 Owner repos:
 
@@ -487,7 +567,7 @@ Done criteria:
 - Repeated marking is idempotent.
 - Submitted records are eligible for 5-record batch notification.
 
-## Phase 7 - Five-Record Batch Notify
+## Phase 8 - Five-Record Batch Notify
 
 Owner repo: `/home/hom/services/openclaw-job-notify-automation`
 
@@ -528,10 +608,13 @@ Done criteria:
 1. Phase 1: request model and `應徵` button.
 2. Phase 2: JD snapshot worker.
 3. Phase 3: resume snapshot integration.
-4. Phase 4: generator/reviewer/validator.
+4. Phase 4: JD-aware generator/reviewer/validator.
 5. Phase 5: tailnet private package view.
-6. Phase 6: manual submitted tracking.
-7. Phase 7: 5-record batch Notify.
+6. Phase 6: 104 resume draft create/update.
+7. Phase 7: assisted application / manual submitted tracking.
+8. Phase 8: 5-record batch Notify.
 
 Do not start Phase 4 until Phase 1-3 can create a complete private input bundle.
 Do not call anything `package_ready` until Phase 5 makes copy-ready fields visible through the private view.
+Do not start Phase 6 writes until Phase 5 has an approved package and a recoverable review trail.
+Do not implement automatic application submission as MVP scope.

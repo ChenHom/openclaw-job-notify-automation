@@ -6,7 +6,9 @@ Date: 2026-05-21
 
 Claw Notify daily 104 high-fit job cards should let the user press `應徵`, then generate an application package based on the 104 online resume named `程式`.
 
-The first version stops at package generation and manual submission tracking. It must not automatically modify 104 or submit an application.
+The near-term MVP stops at generating a job/company-specific resume package for review. It must not automatically submit an application.
+
+The next controlled phase may create or update a 104 online resume draft after user review, but submission remains a later assisted-apply goal.
 
 ## Current Verdict After Red-Team Review
 
@@ -30,10 +32,20 @@ The original MVP scope was directionally right, but several claims were too vagu
 - The notification card has one primary button: `應徵`.
 - The application package uses the 104 online resume named `程式` as the source resume.
 - 104 submissions must use online resume data, not PDF or attachment upload.
-- AI may tailor only:
+- MVP target: produce a resume tailored to the JD first; automatic submission is not MVP scope.
+- Resume reuse granularity: one generated resume per company. The first job code is used as the name prefix; same-company reruns update the same draft unless the user explicitly asks otherwise.
+- Generated resume name format: `<jobCode>_<companyName>`, for example `8rgy1_艾栩策略管理顧問`.
+- If the generated name exceeds 104 limits, truncate only the company-name suffix and keep the job-code prefix.
+- Protected fields must never be changed by generation or 104 writeback:
+  - name, education, company names, job titles, employment dates, salary, contact details, years of experience, management headcount
+  - work-experience ordering
+- AI may tailor only allowed content fields:
   - 技能摘要
+  - 工作技能
   - 自傳
-- The autobiography output should be a complete paste-ready version plus a diff.
+- the most relevant first 3-4 work-experience responsibility sections
+- AI may only reorder, condense, and professionalize wording. It must not add new facts.
+- The autobiography output should be concise, interviewer-oriented, bullet-friendly, and under 1000 total characters including English letters and numbers when that limit is requested.
 - Application summary batches count only jobs the user marked as submitted.
 - Every 5 submitted records should produce one Claw Notify summary.
 
@@ -131,10 +143,15 @@ applications/104_<jobId>_<timestamp>/
   jd.json
   source-resume.json
   application-package.md
+  resume-profile.json
   skill-summary.full.md
   skill-summary.diff.md
+  work-skills.full.md
+  work-skills.diff.md
   autobiography.full.md
   autobiography.diff.md
+  experiences/<company>.full.md
+  experiences/<company>.diff.md
   risk-review.md
 ```
 
@@ -148,7 +165,28 @@ The user-facing package page should show copy-ready full text first:
 - `自傳` complete paste-ready text with a copy button.
 - Diff is secondary audit evidence, not the primary human action surface.
 
-MVP does not apply patches back to 104 automatically. If future automation writes back to 104, it must replace whole field values from `*.full.md` and verify by re-reading the page after save. It must not try to apply git-like patches to 104 rich-text fields.
+MVP does not apply patches back to 104 automatically. If future automation writes back to 104, it must replace whole field values from `*.full.md` / `resume-profile.json` and verify by re-reading the page after save. It must not try to apply git-like patches to 104 rich-text fields.
+
+## 104 Online Resume Creation Probe
+
+2026-05-25 controlled observation on `https://pda.104.com.tw/profile/`:
+
+- The profile list showed `我的履歷 (4/7)`.
+- The `新增履歷` entry exists at `.profile-index__add[data-gtm-cprofile="profile-新增履歷"]`.
+- Clicking it opens the modal `製作你的履歷表`.
+- The modal provides three creation methods:
+  - `複製履歷`: choose an existing resume and a resume type, then click `開始製作`.
+  - `AI 履歷掃描`: enter resume name, upload PDF, choose translation language.
+  - `手動建立`: enter resume name and resume type, then click `開始製作`.
+- The safest P6 path is still through 104's official `新增履歷` flow, using `複製履歷` from source resume `程式` when possible, then replacing only allowlisted fields in the newly created or existing company-specific draft.
+- The final `開始製作` action was not clicked during the probe because it may create a real 104 resume immediately.
+
+P6 must treat `開始製作`, save, and application submission as separate risk levels:
+
+- probe/navigation is safe after login;
+- `開始製作` may create a draft resume and needs an explicit test or production intent;
+- saving allowlisted field edits requires readback verification;
+- submitting an application is out of MVP scope.
 
 ## Package Display
 
