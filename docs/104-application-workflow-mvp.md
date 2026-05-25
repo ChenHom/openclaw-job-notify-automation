@@ -140,6 +140,8 @@ applications/104_<jobId>_<timestamp>/
 
 Firestore and Notify payloads may include status, title, company, high-level summary, and artifact references. They must not include full resume text, phone, email, cookies, tokens, or 104 session data.
 
+2026-05-25 MVP note: the first implemented package generator is conservative. It copies the existing exported 104 `技能摘要` and `自傳` into the private package artifacts unchanged, then marks the public request `package_ready_bridge_unavailable` until Phase 5 provides a private view. This keeps generated content usable for local review without putting package text into Firestore.
+
 The user-facing package page should show copy-ready full text first:
 
 - `技能摘要` complete paste-ready text with a copy button.

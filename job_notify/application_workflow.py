@@ -1,6 +1,6 @@
 """Minimal 104 application workflow worker.
 
-This module owns the private artifact boundary for Phase 2/3:
+This module owns the private artifact boundary for Phase 2/3/4:
 Firestore request metadata is public-safe, while JD and resume snapshots are
 written only under the private profile directory.
 """
@@ -22,14 +22,18 @@ REQUESTED = "requested"
 FETCHING_JOB = "fetching_job"
 FETCHING_RESUME = "fetching_resume"
 GENERATING_PACKAGE = "generating_package"
+PACKAGE_READY_BRIDGE_UNAVAILABLE = "package_ready_bridge_unavailable"
 BLOCKED_JOB_DETAIL_UNAVAILABLE = "blocked_job_detail_unavailable"
 BLOCKED_RESUME_FETCH_AUTH_REQUIRED = "blocked_resume_fetch_auth_required"
 BLOCKED_RESUME_NOT_FOUND = "blocked_resume_not_found"
+NEEDS_MANUAL_REVIEW = "needs_manual_review"
 FAILED = "failed"
 
 
 class ApplicationStore(Protocol):
     def list_requested(self, limit: int = 5) -> list[dict[str, Any]]: ...
+
+    def list_generating_package(self, limit: int = 5) -> list[dict[str, Any]]: ...
 
     def update_status(self, request: dict[str, Any], status: str, extra: dict[str, Any] | None = None) -> None: ...
 
@@ -86,11 +90,39 @@ class ApplicationArtifactRepository:
     def source_resume_path(self, application_id: str) -> Path:
         return self.application_dir(application_id) / "source-resume.json"
 
+    def skill_summary_full_path(self, application_id: str) -> Path:
+        return self.application_dir(application_id) / "skill-summary.full.md"
+
+    def skill_summary_diff_path(self, application_id: str) -> Path:
+        return self.application_dir(application_id) / "skill-summary.diff.md"
+
+    def autobiography_full_path(self, application_id: str) -> Path:
+        return self.application_dir(application_id) / "autobiography.full.md"
+
+    def autobiography_diff_path(self, application_id: str) -> Path:
+        return self.application_dir(application_id) / "autobiography.diff.md"
+
+    def risk_review_path(self, application_id: str) -> Path:
+        return self.application_dir(application_id) / "risk-review.md"
+
+    def application_package_path(self, application_id: str) -> Path:
+        return self.application_dir(application_id) / "application-package.md"
+
     def write_json(self, path: Path, data: dict[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, delete=False) as tmp:
             json.dump(data, tmp, ensure_ascii=False, indent=2)
             tmp.write("\n")
+            tmp.flush()
+            tmp_path = Path(tmp.name)
+        tmp_path.replace(path)
+
+    def write_text(self, path: Path, text: str) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, delete=False) as tmp:
+            tmp.write(text)
+            if text and not text.endswith("\n"):
+                tmp.write("\n")
             tmp.flush()
             tmp_path = Path(tmp.name)
         tmp_path.replace(path)
@@ -204,6 +236,97 @@ class ResumeExportAdapter:
         return ResumeExportOutcome(status, result)
 
 
+@dataclass(frozen=True)
+class ApplicationPackageResult:
+    status: str
+    files: dict[str, str]
+    warnings: list[str]
+
+    @property
+    def ok(self) -> bool:
+        return self.status == PACKAGE_READY_BRIDGE_UNAVAILABLE
+
+
+class ConservativePackageGenerator:
+    """Create copy-ready private package artifacts without inventing claims."""
+
+    def generate(self, *, application_id: str, artifacts: ApplicationArtifactRepository) -> ApplicationPackageResult:
+        manifest = artifacts.read_json(artifacts.manifest_path(application_id), {})
+        jd = artifacts.read_json(artifacts.jd_path(application_id), {})
+        source_resume = artifacts.read_json(artifacts.source_resume_path(application_id), {})
+        sections = source_resume.get("sections") or {}
+        skills_summary = normalize_multiline_text(str(sections.get("skillsSummary") or ""))
+        autobiography = normalize_multiline_text(str(sections.get("autobiography") or ""))
+        if not skills_summary or not autobiography:
+            return ApplicationPackageResult(
+                NEEDS_MANUAL_REVIEW,
+                {},
+                ["source_resume_missing_required_sections"],
+            )
+
+        risk_review = build_conservative_risk_review(jd)
+        package = build_application_package(
+            manifest=manifest,
+            jd=jd,
+            skills_summary=skills_summary,
+            autobiography=autobiography,
+            risk_review=risk_review,
+        )
+        writes = {
+            "skillSummaryFull": artifacts.skill_summary_full_path(application_id),
+            "skillSummaryDiff": artifacts.skill_summary_diff_path(application_id),
+            "autobiographyFull": artifacts.autobiography_full_path(application_id),
+            "autobiographyDiff": artifacts.autobiography_diff_path(application_id),
+            "riskReview": artifacts.risk_review_path(application_id),
+            "applicationPackage": artifacts.application_package_path(application_id),
+        }
+        artifacts.write_text(writes["skillSummaryFull"], skills_summary)
+        artifacts.write_text(writes["skillSummaryDiff"], "No generated rewrite. Source field copied unchanged for MVP safety.\n")
+        artifacts.write_text(writes["autobiographyFull"], autobiography)
+        artifacts.write_text(writes["autobiographyDiff"], "No generated rewrite. Source field copied unchanged for MVP safety.\n")
+        artifacts.write_text(writes["riskReview"], risk_review)
+        artifacts.write_text(writes["applicationPackage"], package)
+        return ApplicationPackageResult(
+            PACKAGE_READY_BRIDGE_UNAVAILABLE,
+            {key: path.name for key, path in writes.items()},
+            ["private_view_bridge_not_implemented"],
+        )
+
+
+class ApplicationPackageWorker:
+    def __init__(
+        self,
+        *,
+        store: ApplicationStore,
+        artifacts: ApplicationArtifactRepository,
+        generator: ConservativePackageGenerator | None = None,
+    ):
+        self.store = store
+        self.artifacts = artifacts
+        self.generator = generator or ConservativePackageGenerator()
+
+    def run_once(self, limit: int = 5) -> list[dict[str, Any]]:
+        return [self.process_request(request) for request in self.store.list_generating_package(limit)]
+
+    def process_request(self, request: dict[str, Any]) -> dict[str, Any]:
+        application_id = request["applicationId"]
+        result = self.generator.generate(application_id=application_id, artifacts=self.artifacts)
+        self.store.update_status(request, result.status, {
+            "updatedAt": utc_now_iso(),
+            "packageStatus": result.status,
+            "packageWarnings": result.warnings,
+        })
+        self.artifacts.update_manifest(application_id, {
+            "status": result.status,
+            "package": {
+                "status": result.status,
+                "files": result.files,
+                "warnings": result.warnings,
+            },
+        })
+        return {"applicationId": application_id, "status": result.status}
+
+
 class ApplicationWorker:
     def __init__(
         self,
@@ -288,3 +411,58 @@ def normalize_resume_failure_status(status: str) -> str:
     if status in {BLOCKED_RESUME_FETCH_AUTH_REQUIRED, BLOCKED_RESUME_NOT_FOUND}:
         return status
     return FAILED
+
+
+def normalize_multiline_text(value: str) -> str:
+    lines = [line.rstrip() for line in value.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return "\n".join(lines)
+
+
+def build_conservative_risk_review(jd: dict[str, Any]) -> str:
+    fetch_status = jd.get("fetchStatus", "")
+    warnings = ["- No generated rewrite was applied; source resume fields were copied unchanged."]
+    if fetch_status and fetch_status != "fetched":
+        warnings.append(f"- JD snapshot is limited: `{fetch_status}`.")
+    return "\n".join([
+        "# Risk Review",
+        "",
+        "Status: conservative MVP package.",
+        "",
+        "Checks:",
+        "- Protected fields were not rewritten.",
+        "- No new company, school, certification, employment date, years, numeric result, or contact claim was generated.",
+        *warnings,
+        "",
+        "Decision: package can be reviewed privately, but remains behind the private-view bridge gate.",
+    ])
+
+
+def build_application_package(*, manifest: dict[str, Any], jd: dict[str, Any], skills_summary: str, autobiography: str, risk_review: str) -> str:
+    job = manifest.get("job") or {}
+    title = jd.get("title") or job.get("title") or ""
+    company = jd.get("company") or job.get("company") or ""
+    return "\n".join([
+        "# 104 Application Package",
+        "",
+        f"- Application ID: `{manifest.get('applicationId', '')}`",
+        f"- Job: {title}",
+        f"- Company: {company}",
+        f"- Resume: {manifest.get('resumeName', '程式')}",
+        "- Package mode: conservative source-copy MVP",
+        "",
+        "## 技能摘要",
+        "",
+        skills_summary,
+        "",
+        "## 自傳",
+        "",
+        autobiography,
+        "",
+        "## Review",
+        "",
+        risk_review,
+    ])

@@ -5,11 +5,14 @@ from pathlib import Path
 
 from job_notify.application_workflow import (
     ApplicationArtifactRepository,
+    ApplicationPackageWorker,
     ApplicationWorker,
     BLOCKED_JOB_DETAIL_UNAVAILABLE,
     BLOCKED_RESUME_FETCH_AUTH_REQUIRED,
+    ConservativePackageGenerator,
     FETCHING_RESUME,
     GENERATING_PACKAGE,
+    PACKAGE_READY_BRIDGE_UNAVAILABLE,
     ResumeExportOutcome,
 )
 from job_notify.firestore_admin import FixtureApplicationStore
@@ -165,3 +168,64 @@ def test_fixture_application_store_can_filter_requested_items_by_limit():
     ])
 
     assert [item["applicationId"] for item in store.list_requested(limit=1)] == ["a1"]
+
+
+def test_conservative_package_generator_copies_resume_fields_without_new_claims(tmp_path):
+    req = request(status=GENERATING_PACKAGE)
+    repo = ApplicationArtifactRepository(tmp_path)
+    repo.update_manifest(req["applicationId"], {
+        "schemaVersion": 1,
+        "applicationId": req["applicationId"],
+        "status": GENERATING_PACKAGE,
+        "resumeName": "程式",
+        "job": {"title": req["title"], "company": req["company"]},
+    })
+    repo.write_jd_snapshot(req, {
+        "title": req["title"],
+        "company": req["company"],
+        "fetchStatus": "metadata_only",
+    })
+    repo.write_json(repo.source_resume_path(req["applicationId"]), {
+        "sections": {
+            "skillsSummary": "PHP\nLaravel",
+            "autobiography": "原始自傳",
+        }
+    })
+
+    result = ConservativePackageGenerator().generate(application_id=req["applicationId"], artifacts=repo)
+
+    assert result.status == PACKAGE_READY_BRIDGE_UNAVAILABLE
+    assert repo.skill_summary_full_path(req["applicationId"]).read_text(encoding="utf-8").strip() == "PHP\nLaravel"
+    assert repo.autobiography_full_path(req["applicationId"]).read_text(encoding="utf-8").strip() == "原始自傳"
+    package = repo.application_package_path(req["applicationId"]).read_text(encoding="utf-8")
+    assert "PHP\nLaravel" in package
+    assert "原始自傳" in package
+    assert "No generated rewrite" in repo.risk_review_path(req["applicationId"]).read_text(encoding="utf-8")
+
+
+def test_package_worker_moves_generating_package_to_bridge_unavailable(tmp_path):
+    req = request(status=GENERATING_PACKAGE)
+    store = FixtureApplicationStore([req])
+    repo = ApplicationArtifactRepository(tmp_path)
+    repo.update_manifest(req["applicationId"], {
+        "applicationId": req["applicationId"],
+        "status": GENERATING_PACKAGE,
+        "resumeName": "程式",
+        "job": {"title": req["title"], "company": req["company"]},
+    })
+    repo.write_jd_snapshot(req, {"title": req["title"], "company": req["company"], "fetchStatus": "metadata_only"})
+    repo.write_json(repo.source_resume_path(req["applicationId"]), {
+        "sections": {
+            "skillsSummary": "PHP",
+            "autobiography": "自傳",
+        }
+    })
+    worker = ApplicationPackageWorker(store=store, artifacts=repo)
+
+    results = worker.run_once()
+
+    assert results == [{"applicationId": req["applicationId"], "status": PACKAGE_READY_BRIDGE_UNAVAILABLE}]
+    assert store.status_updates[-1][1] == PACKAGE_READY_BRIDGE_UNAVAILABLE
+    manifest = json.loads(repo.manifest_path(req["applicationId"]).read_text(encoding="utf-8"))
+    assert manifest["status"] == PACKAGE_READY_BRIDGE_UNAVAILABLE
+    assert manifest["package"]["files"]["applicationPackage"] == "application-package.md"

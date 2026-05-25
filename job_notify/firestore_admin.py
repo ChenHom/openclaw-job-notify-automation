@@ -149,15 +149,21 @@ class FirestoreApplicationStore:
         self.uid = uid
 
     def list_requested(self, limit: int = 5) -> list[dict[str, Any]]:
+        return self._list_by_status("requested", limit=limit)
+
+    def list_generating_package(self, limit: int = 5) -> list[dict[str, Any]]:
+        return self._list_by_status("generating_package", limit=limit)
+
+    def _list_by_status(self, status: str, limit: int = 5) -> list[dict[str, Any]]:
         if self.uid and self.application_id:
             doc = read_document_path(f"jobApplications/{self.uid}/requests/{self.application_id}", config=self.config)
-            return [doc] if doc and doc.get("status") == "requested" else []
+            return [doc] if doc and doc.get("status") == status else []
 
         status_filter = {
             "fieldFilter": {
                 "field": {"fieldPath": "status"},
                 "op": "EQUAL",
-                "value": {"stringValue": "requested"},
+                "value": {"stringValue": status},
             }
         }
         if self.application_id:
@@ -178,7 +184,7 @@ class FirestoreApplicationStore:
             },
             config=self.config,
         )
-        return [item for item in results if item.get("status") == "requested"][:limit]
+        return [item for item in results if item.get("status") == status][:limit]
 
     def update_status(self, request: dict[str, Any], status: str, extra: dict[str, Any] | None = None) -> None:
         uid = request["uid"]
@@ -210,6 +216,9 @@ class FixtureApplicationStore:
 
     def list_requested(self, limit: int = 5) -> list[dict[str, Any]]:
         return [item for item in self.requests if item.get("status") == "requested"][:limit]
+
+    def list_generating_package(self, limit: int = 5) -> list[dict[str, Any]]:
+        return [item for item in self.requests if item.get("status") == "generating_package"][:limit]
 
     def update_status(self, request: dict[str, Any], status: str, extra: dict[str, Any] | None = None) -> None:
         self.status_updates.append((request["applicationId"], status, extra or {}))

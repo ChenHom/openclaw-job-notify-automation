@@ -308,6 +308,14 @@ Pipeline:
 5. If clean, status moves toward private view generation.
 6. If unsafe or ambiguous, status moves to `needs_manual_review`.
 
+2026-05-25 simplified implementation:
+
+- Added `--generate-package` mode to `bin/application_worker.py`.
+- Added `ConservativePackageGenerator` and `ApplicationPackageWorker`.
+- The first P4 version deliberately does not use AI rewriting. It copies the exported 104 `skillsSummary` and `autobiography` fields unchanged into private copy-ready artifacts, writes a conservative `risk-review.md`, and creates `application-package.md`.
+- Because Phase 5 private bridge is not implemented yet, successful P4 output moves Firestore and manifest status to `package_ready_bridge_unavailable`, not `package_ready`.
+- Verified real request `104_8l1s4_程式`: generated `skill-summary.full.md`, `skill-summary.diff.md`, `autobiography.full.md`, `autobiography.diff.md`, `risk-review.md`, and `application-package.md`; Firestore remained public-safe and did not store resume/package contents.
+
 Manual review escape route:
 
 - `needs_manual_review` must not be a dead end.
