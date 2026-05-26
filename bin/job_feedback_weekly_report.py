@@ -38,6 +38,8 @@ def build_payload(uid: str, report: str, profile: dict, now: datetime) -> dict:
         "type": "jobs_preference_weekly",
         "source": "job_feedback",
         "sourceName": "104職缺偏好週報",
+        "language": "zh-Hant",
+        "translationEnabled": False,
         "title": f"104職缺偏好週報｜{rid}",
         "summary": summary,
         "url": "",

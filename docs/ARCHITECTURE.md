@@ -31,6 +31,8 @@ As of 2026-05-20, the engineering-source runner is still in the OpenClaw workspa
 
 This repo remains the public-safe job automation engine. Do not move private profile data or inbox deployment concerns into this repo during tech-flow consolidation.
 
+Job notification payloads are not article-translation sources. Weekly 104 lists, daily 104 reports, and job-feedback weekly reports must set `language: zh-Hant` and `translationEnabled: false` so the shared inbox schema can route them without guessing.
+
 ## Layers
 
 ### Domain

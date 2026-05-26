@@ -196,6 +196,29 @@ def daily_job_payload(job: DailyJob) -> dict[str, object]:
     }
 
 
+def build_notification_payload(report_path: Path, content: str, jobs: list[DailyJob], now: datetime) -> dict[str, object]:
+    count = len(jobs)
+    return {
+        "id": f"daily-104-jobs-{report_path.stem}",
+        "type": "jobs_104_daily",
+        "source": "104",
+        "sourceName": "104每日職缺",
+        "language": "zh-Hant",
+        "translationEnabled": False,
+        "title": f"104每日職缺｜{count} 筆" if count else "104每日職缺｜今日無新增",
+        "summary": build_summary(jobs),
+        "url": "",
+        "publishedAt": now.isoformat(),
+        "tags": ["daily", "jobs", "104", "resume"],
+        "notificationFrequency": "daily",
+        "contentHtml": build_content_html(jobs),
+        "contentMarkdown": content,
+        "dailyJobs": [daily_job_payload(job) for job in jobs],
+        "reportPath": str(report_path),
+        "recommendationCount": count,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("report", nargs="?", help="Path to report markdown. Defaults to today's report.")
@@ -214,24 +237,7 @@ def main() -> int:
         print(json.dumps({"ok": True, "skipped": True, "reason": "no recommendations", "report": str(report_path)}, ensure_ascii=False))
         return 0
 
-    count = len(jobs)
-    payload = {
-        "id": f"daily-104-jobs-{report_path.stem}",
-        "type": "jobs_104_daily",
-        "source": "104",
-        "sourceName": "104每日職缺",
-        "title": f"104每日職缺｜{count} 筆" if count else "104每日職缺｜今日無新增",
-        "summary": build_summary(jobs),
-        "url": "",
-        "publishedAt": now.isoformat(),
-        "tags": ["daily", "jobs", "104", "resume"],
-        "notificationFrequency": "daily",
-        "contentHtml": build_content_html(jobs),
-        "contentMarkdown": content,
-        "dailyJobs": [daily_job_payload(job) for job in jobs],
-        "reportPath": str(report_path),
-        "recommendationCount": count,
-    }
+    payload = build_notification_payload(report_path, content, jobs, now)
     send_firebase(payload, args.dry_run, config=config)
     return 0
 

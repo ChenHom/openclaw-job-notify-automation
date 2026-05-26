@@ -139,6 +139,32 @@ def build_job_groups(remote_jobs: list[Job], taichung_jobs: list[Job], limit: in
     ]
 
 
+def build_notification_payload(
+    remote_jobs: list[Job],
+    taichung_jobs: list[Job],
+    search_hints: dict[str, object],
+    *,
+    limit: int | None,
+    now: datetime,
+) -> dict[str, object]:
+    return {
+        "type": "jobs_104",
+        "source": "104",
+        "sourceName": "104 職缺快篩",
+        "language": "zh-Hant",
+        "translationEnabled": False,
+        "title": f"104 後端職缺快篩｜遠端 {len(remote_jobs)}／台中 {len(taichung_jobs)}",
+        "summary": build_summary(remote_jobs, taichung_jobs),
+        "url": "",
+        "publishedAt": now.isoformat(),
+        "tags": ["weekly", "jobs", "104", "php", "backend", "taichung", "remote"],
+        "notificationFrequency": "weekly",
+        "criteria": WEEKLY_CRITERIA,
+        "searchHints": search_hints,
+        "jobGroups": build_job_groups(remote_jobs, taichung_jobs, limit),
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true", help="Print payload instead of sending")
@@ -161,21 +187,7 @@ def main() -> int:
         now=now,
         search_hints=search_hints,
     )
-    summary = build_summary(remote_jobs, taichung_jobs)
-    payload = {
-        "type": "jobs_104",
-        "source": "104",
-        "sourceName": "104 職缺快篩",
-        "title": f"104 後端職缺快篩｜遠端 {len(remote_jobs)}／台中 {len(taichung_jobs)}",
-        "summary": summary,
-        "url": "",
-        "publishedAt": now.isoformat(),
-        "tags": ["weekly", "jobs", "104", "php", "backend", "taichung", "remote"],
-        "notificationFrequency": "weekly",
-        "criteria": WEEKLY_CRITERIA,
-        "searchHints": search_hints,
-        "jobGroups": build_job_groups(remote_jobs, taichung_jobs, args.limit),
-    }
+    payload = build_notification_payload(remote_jobs, taichung_jobs, search_hints, limit=args.limit, now=now)
     send_firebase(payload, args.dry_run, config=config)
     return 0
 
