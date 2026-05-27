@@ -285,7 +285,7 @@ def test_generated_resume_name_truncates_company_suffix_only():
 
 
 def test_build_private_view_url_quotes_application_id():
-    assert build_private_view_url("http://127.0.0.1:8765/", "104_8abcd_程式") == "http://127.0.0.1:8765/package?applicationId=104_8abcd_%E7%A8%8B%E5%BC%8F"
+    assert build_private_view_url("http://192.168.50.109:8765/", "104_8abcd_程式") == "http://192.168.50.109:8765/package?applicationId=104_8abcd_%E7%A8%8B%E5%BC%8F"
 
 
 def test_private_package_view_renders_copy_ready_fields_without_source_snapshot(tmp_path):

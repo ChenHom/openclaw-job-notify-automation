@@ -474,25 +474,25 @@ Done criteria:
 - Start command:
 
 ```bash
-python3 bin/application_private_view_server.py --profile-dir /home/hom/services/openclaw-job-notify-profile --port 8765
+python3 bin/application_private_view_server.py --profile-dir /home/hom/services/openclaw-job-notify-profile --host 0.0.0.0 --port 8765
 ```
 
-- Health endpoint: `http://127.0.0.1:8765/health`.
-- Package endpoint: `http://127.0.0.1:8765/package?applicationId=<applicationId>`.
+- Health endpoint: `http://192.168.50.109:8765/health` from the LAN.
+- Package endpoint: `http://192.168.50.109:8765/package?applicationId=<applicationId>`.
 - The page renders copy-ready `技能摘要`, `工作技能`, `自傳`, and `risk-review.md`.
 - The response is blocked if unsafe markers such as source snapshot names, cookies, or tokens appear in the rendered HTML.
 - The page now includes private-only review actions:
   - `確認，進入 P6`: marks the private manifest `package_ready`.
   - `儲存手動修正版`: writes versioned `*.manual-v<N>.md` artifacts and keeps generated originals unchanged.
   - `取消此應徵包`: marks the private manifest `cancelled`.
-- The package worker stores a private `privateViewUrl` in the local manifest package block, for example `http://127.0.0.1:8765/package?applicationId=<encodedApplicationId>`. This value is private-manifest metadata, not package content in Firestore.
+- The package worker stores a private `privateViewUrl` in the local manifest package block, for example `http://192.168.50.109:8765/package?applicationId=<encodedApplicationId>`. This value is private-manifest metadata, not package content in Firestore.
 - Verified locally with `104_8l1s4_程式`: health returned OK and package HTML rendered without exposing `source-resume.json`.
 
 2026-05-27 hosted shell completion:
 
 - `openclaw-notify-inbox` now reads the signed-in user's `jobApplications/{uid}/requests/{applicationId}` status when rendering weekly/daily 104 job cards.
 - For `package_ready_bridge_unavailable`, `needs_manual_review`, and `package_ready`, the hosted shell shows an explicit private-network panel with `開啟私密應徵包`.
-- The hosted shell derives the local private view URL as `http://127.0.0.1:8765/package?applicationId=<encodedApplicationId>` and does not fetch localhost, auto-redirect, or store private package content in Firestore.
+- The hosted shell derives the LAN private view URL as `http://192.168.50.109:8765/package?applicationId=<encodedApplicationId>` and does not fetch the private view, auto-redirect, or store private package content in Firestore.
 - Verified frontend tests and local private view smoke against `104_8l1s4_程式`.
 
 ## Phase 6 - 104 Resume Draft Create / Update
