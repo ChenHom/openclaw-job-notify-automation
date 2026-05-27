@@ -582,11 +582,10 @@ def prioritize_terms(jd_text: str, source_text: str) -> list[str]:
 
 
 def build_jd_aware_skills_summary(source: str, terms: list[str]) -> str:
-    lines = [line.strip() for line in source.splitlines() if line.strip()]
+    lines = [line.strip() for line in source.splitlines() if line.strip() and not line.strip().startswith("#")]
     scored = sorted(lines, key=lambda line: min([terms.index(term) for term in terms if term.lower() in line.lower()] or [999]))
-    hashtags = " ".join(f"#{term.replace(' ', '')}" for term in terms[:10])
     body = "\n".join(scored[:8])
-    return normalize_multiline_text("\n".join(part for part in [body, hashtags] if part))
+    return normalize_multiline_text(body)
 
 
 def build_jd_aware_work_skills(source: str, terms: list[str]) -> str:
@@ -600,11 +599,13 @@ def build_jd_aware_work_skills(source: str, terms: list[str]) -> str:
     ]
     if any(term.lower() in {"laravel", "php", "codeigniter"} for term in [t.lower() for t in terms]):
         capabilities.insert(0, "PHP / Laravel 後端開發")
-    tags = " ".join(f"#{term.replace(' ', '')}" for term in terms[:8])
-    return normalize_multiline_text("\n".join(dict.fromkeys([*capabilities, *base[:3], tags])))
+    return normalize_multiline_text("\n".join(dict.fromkeys([*capabilities, *base[:3]])))
 
 
-def build_jd_aware_autobiography(source: str, terms: list[str], *, limit: int = 950) -> str:
+def build_jd_aware_autobiography(source: str, terms: list[str], *, limit: int = 2500) -> str:
+    normalized_source = normalize_multiline_text(source)
+    if len(normalized_source) <= limit:
+        return normalized_source
     compact = re.sub(r"\s+", " ", source).strip()
     focus = "、".join(terms[:6]) or "後端開發、系統維護、需求協作"
     bullets = [

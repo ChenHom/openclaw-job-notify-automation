@@ -273,7 +273,9 @@ def test_jd_aware_package_generator_writes_resume_profile_and_allowed_fields(tmp
     assert profile["generatedResumeName"] == "8rgy1_艾栩策略管理顧問"
     assert set(profile["allowlistedFields"]) == {"skillsSummary", "workSkills", "autobiography", "experiences"}
     assert "Laravel" in repo.skill_summary_full_path(req["applicationId"]).read_text(encoding="utf-8").splitlines()[0:3]
-    assert "職能定位" in repo.autobiography_full_path(req["applicationId"]).read_text(encoding="utf-8")
+    assert "#" not in profile["allowlistedFields"]["skillsSummary"]
+    assert "#" not in profile["allowlistedFields"]["workSkills"]
+    assert profile["allowlistedFields"]["autobiography"] == "我有金流平台開發維運、Laravel API、MySQL 效能改善、系統監控與既有系統重構經驗。"
     assert (repo.application_dir(req["applicationId"]) / "experiences" / "究境.full.md").exists()
 
 
