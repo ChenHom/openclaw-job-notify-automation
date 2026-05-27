@@ -314,6 +314,7 @@ def test_private_package_view_renders_copy_ready_fields_without_source_snapshot(
     assert "PHP\nLaravel" in view.body
     assert "source-resume.json" not in view.body
     assert "確認，進入 P6" in view.body
+    assert 'action="package/action?applicationId=104_8abcd_程式"' in view.body
 
 
 def test_private_package_view_approve_updates_manifest(tmp_path):
@@ -332,6 +333,7 @@ def test_private_package_view_approve_updates_manifest(tmp_path):
     )
 
     assert view.status_code == 303
+    assert view.headers["Location"] == "../package?applicationId=104_8abcd_%E7%A8%8B%E5%BC%8F"
     manifest = json.loads(repo.manifest_path(req["applicationId"]).read_text(encoding="utf-8"))
     assert manifest["status"] == PACKAGE_READY
     assert manifest["package"]["status"] == PACKAGE_READY

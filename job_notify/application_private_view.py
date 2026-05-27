@@ -110,7 +110,7 @@ def read_text_if_exists(path: Path) -> str:
 
 def redirect_to_package(application_id: str) -> PrivatePackageView:
     safe_id = urllib.parse.quote(application_id, safe="")
-    location = f"/package?applicationId={safe_id}"
+    location = f"../package?applicationId={safe_id}"
     return PrivatePackageView(303, "text/plain; charset=utf-8", location, {"Location": location})
 
 
@@ -178,7 +178,7 @@ def build_package_html(
     <p>已通過 P5 審核，可執行 guarded apply 建立或更新 104 線上履歷草稿；此步驟不會送出應徵。</p>
     <pre>cd /home/hom/services/104-resume-automation &amp;&amp; npm run resume:draft -- --profile {html.escape(str(profile_path))} --apply</pre>
   </section>"""
-    action_url = f"/package/action?applicationId={html.escape(application_id, quote=True)}"
+    action_url = f"package/action?applicationId={html.escape(application_id, quote=True)}"
     return f"""<!doctype html>
 <html lang="zh-Hant">
 <head>
