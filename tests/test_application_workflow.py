@@ -334,7 +334,12 @@ def test_private_package_view_approve_updates_manifest(tmp_path):
     assert view.status_code == 303
     manifest = json.loads(repo.manifest_path(req["applicationId"]).read_text(encoding="utf-8"))
     assert manifest["status"] == PACKAGE_READY
+    assert manifest["package"]["status"] == PACKAGE_READY
     assert manifest["review"]["status"] == "approved"
+
+    ready_view = render_package_view(application_id=req["applicationId"], artifacts=repo)
+    assert "P6 下一步" in ready_view.body
+    assert "npm run resume:draft" in ready_view.body
 
 
 def test_private_package_view_saves_manual_revision_without_overwriting_generated(tmp_path):

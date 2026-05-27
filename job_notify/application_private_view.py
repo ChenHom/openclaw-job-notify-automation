@@ -46,7 +46,8 @@ def render_package_view(*, application_id: str, artifacts: ApplicationArtifactRe
     autobiography = read_text_if_exists(artifacts.autobiography_full_path(application_id))
     risk_review = read_text_if_exists(artifacts.risk_review_path(application_id))
     manual_note = read_text_if_exists(app_dir / "manual-review-note-latest.md")
-    package_status = str((manifest.get("package") or {}).get("status") or manifest.get("status") or "")
+    manifest_status = str(manifest.get("status") or "")
+    package_status = manifest_status if manifest_status == PACKAGE_READY else str((manifest.get("package") or {}).get("status") or manifest_status)
     resume_name = str(profile.get("generatedResumeName") or manifest.get("resumeName") or "")
     job = profile.get("job") or manifest.get("job") or {}
     body = build_package_html(
@@ -74,8 +75,11 @@ def handle_package_action(*, application_id: str, artifacts: ApplicationArtifact
     form = {key: values[-1] for key, values in urllib.parse.parse_qs(raw_body.decode("utf-8"), keep_blank_values=True).items()}
     action = form.get("action", "")
     if action == "approve":
+        package = dict(artifacts.read_json(manifest_path).get("package") or {})
+        package["status"] = PACKAGE_READY
         artifacts.update_manifest(application_id, {
             "status": PACKAGE_READY,
+            "package": package,
             "review": {
                 "status": "approved",
                 "approvedAt": utc_now_iso(),
@@ -165,6 +169,15 @@ def build_package_html(
         return html.escape(value, quote=False)
 
     status_note = "已確認，可進 P6 草稿建立" if package_status == PACKAGE_READY else "待審核"
+    p6_next = ""
+    if package_status == PACKAGE_READY:
+        profile_path = app_dir / "resume-profile.json"
+        p6_next = f"""
+  <section>
+    <h2>P6 下一步</h2>
+    <p>已通過 P5 審核，可執行 guarded apply 建立或更新 104 線上履歷草稿；此步驟不會送出應徵。</p>
+    <pre>cd /home/hom/services/104-resume-automation &amp;&amp; npm run resume:draft -- --profile {html.escape(str(profile_path))} --apply</pre>
+  </section>"""
     action_url = f"/package/action?applicationId={html.escape(application_id, quote=True)}"
     return f"""<!doctype html>
 <html lang="zh-Hant">
@@ -215,6 +228,7 @@ def build_package_html(
     <h2>審核備註</h2>
     <textarea name="note">{escaped_textarea(manual_note)}</textarea>
   </section>
+  {p6_next}
   <div class="actions">
     <button class="primary" type="submit" name="action" value="approve">確認，進入 P6</button>
     <button type="submit" name="action" value="save_manual">儲存手動修正版</button>
