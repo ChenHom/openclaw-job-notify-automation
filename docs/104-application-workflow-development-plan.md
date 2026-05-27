@@ -591,6 +591,16 @@ npm run resume:draft -- --profile /home/hom/services/openclaw-job-notify-profile
 - Real current result before P5 approval: `blocked_package_not_approved`, target resume `8l1s4_沃龍超遊股份有限公司`, action `create_from_source_resume`, `addResumeEntryAvailable: true`, `writes104: false`, `submitsApplication: false`.
 - Simulated approved manifest result: `dry_run_ready`, action `create_from_source_resume`, `writes104: true`, `submitsApplication: false`.
 
+2026-05-27 guarded apply implementation:
+
+- `104-resume-automation` now supports guarded apply mode through `npm run resume:draft -- --profile <resume-profile.json> --apply`.
+- Apply mode still requires P5 approval: sibling `manifest.json` must be `status: "package_ready"` and `review.status: "approved"`.
+- The apply path reuses an existing generated resume when present; otherwise it follows the confirmed `新增履歷` / `複製履歷` / source resume `程式` create path.
+- Writable data is normalized from `resume-profile.json` and limited to `skillsSummary`, `workSkills`, `autobiography`, and at most four company-matched experience responsibility sections.
+- Protected fields remain outside the write payload; application submission remains out of scope.
+- Failure states are now explicit: `blocked_resume_create_failed`, `blocked_resume_write_failed`, and `blocked_resume_verify_failed`.
+- Verification run: `npm test`, `npx tsc --noEmit`, and a real dry-run against `104_8l1s4_程式` returned `blocked_package_not_approved` with `writes104: false`.
+
 ## Phase 7 - Assisted Application / Manual Submission Tracking
 
 Owner repos:
