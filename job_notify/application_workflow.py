@@ -399,7 +399,7 @@ class ApplicationPackageWorker:
         store: ApplicationStore,
         artifacts: ApplicationArtifactRepository,
         generator: ConservativePackageGenerator | None = None,
-        private_view_base_url: str = "http://192.168.50.109",
+        private_view_base_url: str = "http://192.168.50.109/file-exchange",
     ):
         self.store = store
         self.artifacts = artifacts
