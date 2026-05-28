@@ -620,14 +620,21 @@ TDD first:
 
 Implementation:
 
-- Add `我已送出` action in private package/status view.
+- Add `手動應徵完成` action in the hosted application status panel.
 - Write public-safe status update to Firestore.
-- Append private submission record to profile repo.
+- Keep `submittedAt` stable on repeated clicks and update `lastSubmittedClickAt`.
+- Private profile submission records remain future work if a local audit trail beyond Firestore is needed.
 
 Done criteria:
 
 - Repeated marking is idempotent.
 - Submitted records are eligible for 5-record batch notification.
+
+2026-05-28 implementation note:
+
+- `openclaw-notify-inbox` added the hosted `手動應徵完成` action for `package_ready_bridge_unavailable`, `package_ready`, and `manual_apply_opened`.
+- Firestore rules now allow the owner to transition an existing application request to `submitted_by_user` with only `status`, `submittedAt`, `lastSubmittedClickAt`, and `updatedAt`.
+- The private package P6 section now shows the post-apply checklist: confirm `applied_and_verified`, inspect the 104 draft, submit manually on 104, then mark completion in Claw Notify.
 
 ## Phase 8 - Five-Record Batch Notify
 
