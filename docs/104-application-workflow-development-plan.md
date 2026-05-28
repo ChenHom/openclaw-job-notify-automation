@@ -636,6 +636,23 @@ Done criteria:
 - Firestore rules now allow the owner to transition an existing application request to `submitted_by_user` with only `status`, `submittedAt`, `lastSubmittedClickAt`, and `updatedAt`.
 - The private package P6 section now shows the post-apply checklist: confirm `applied_and_verified`, inspect the 104 draft, submit manually on 104, then mark completion in Claw Notify.
 
+Current operator SOP:
+
+1. Open a 104 job card in Claw Notify and click `應徵`.
+2. Wait for the worker to generate the private package.
+3. Open the LAN private package view through `http://192.168.50.109/file-exchange/package?applicationId=<applicationId>`.
+4. Review the copy-ready fields and risk notes, then click `確認，進入 P6`.
+5. Run the displayed P6 command from `/home/hom/services/104-resume-automation`.
+6. Continue only if P6 returns `applied_and_verified`.
+7. Open 104 manually, inspect the generated draft layout, and submit on 104.
+8. Return to Claw Notify and click `手動應徵完成`.
+
+Do not:
+
+- Treat P6 as application submission. It only creates or updates the 104 resume draft.
+- Put generated resume/package content in Firestore, public docs, or long-term memory.
+- Use `127.0.0.1` in mobile-facing private package links.
+
 ## Phase 8 - Five-Record Batch Notify
 
 Owner repo: `/home/hom/services/openclaw-job-notify-automation`
