@@ -344,6 +344,8 @@ def test_private_package_view_approve_updates_manifest(tmp_path):
     ready_view = render_package_view(application_id=req["applicationId"], artifacts=repo)
     assert "P6 下一步" in ready_view.body
     assert "npm run resume:draft" in ready_view.body
+    assert "applied_and_verified" in ready_view.body
+    assert "手動應徵完成" in ready_view.body
 
 
 def test_private_package_view_saves_manual_revision_without_overwriting_generated(tmp_path):

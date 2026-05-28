@@ -177,6 +177,12 @@ def build_package_html(
     <h2>P6 下一步</h2>
     <p>已通過 P5 審核，可執行 guarded apply 建立或更新 104 線上履歷草稿；此步驟不會送出應徵。</p>
     <pre>cd /home/hom/services/104-resume-automation &amp;&amp; npm run resume:draft -- --profile {html.escape(str(profile_path))} --apply</pre>
+    <ol>
+      <li>執行上方指令後，確認輸出狀態為 <code>applied_and_verified</code>。</li>
+      <li>到 104 開啟新履歷「{html.escape(resume_name)}」，檢查技能區塊、工作技能與自傳排版。</li>
+      <li>確認內容無誤後，在 104 手動送出應徵；此系統不會自動投遞。</li>
+      <li>送出後回到 Claw Notify，按「手動應徵完成」，讓後續統計與批次摘要能正確計算。</li>
+    </ol>
   </section>"""
     action_url = f"package/action?applicationId={html.escape(application_id, quote=True)}"
     return f"""<!doctype html>
